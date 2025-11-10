@@ -60,8 +60,8 @@ type Connection struct {
 	clientHSTr       []byte
 	serverHSTr       []byte
 
-	serverCipher *Cipher
-	clientCipher *Cipher
+	writeCipher *Cipher
+	readCipher  *Cipher
 }
 
 // HandshakeState defines the connection's handshake state.
@@ -110,10 +110,10 @@ func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
 			return CTInvalid, nil, err
 		}
 		if ct == CTApplicationData {
-			if conn.clientCipher == nil {
+			if conn.readCipher == nil {
 				return CTInvalid, nil, fmt.Errorf("unexpected %v message", ct)
 			}
-			ct, data, err = conn.clientCipher.Decrypt(data)
+			ct, data, err = conn.readCipher.Decrypt(data)
 			if err != nil {
 				return CTInvalid, nil, conn.alert(AlertBadRecordMAC)
 			}
@@ -148,9 +148,9 @@ func (conn *Connection) writeHandshakeMsg(ht HandshakeType, data []byte) error {
 
 	ct := CTHandshake
 
-	if conn.serverCipher != nil {
+	if conn.writeCipher != nil {
 		ct = CTApplicationData
-		data = conn.serverCipher.Encrypt(CTHandshake, data)
+		data = conn.writeCipher.Encrypt(CTHandshake, data)
 	}
 
 	return conn.WriteRecord(ct, data)
@@ -423,7 +423,7 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 		if ct != CTApplicationData {
 			return 0, conn.alert(AlertUnexpectedMessage)
 		}
-		ct, data, err = conn.clientCipher.Decrypt(data)
+		ct, data, err = conn.readCipher.Decrypt(data)
 		if err != nil {
 			return 0, conn.alert(AlertBadRecordMAC)
 		}
@@ -446,7 +446,7 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 }
 
 func (conn *Connection) Write(p []byte) (int, error) {
-	cipher := conn.serverCipher.Encrypt(CTApplicationData, p)
+	cipher := conn.writeCipher.Encrypt(CTApplicationData, p)
 	err := conn.WriteRecord(CTApplicationData, cipher)
 	if err != nil {
 		return 0, err

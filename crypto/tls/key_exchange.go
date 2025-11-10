@@ -109,11 +109,11 @@ func (conn *Connection) deriveServerHandshakeKeys() error {
 
 	var err error
 
-	conn.serverCipher, err = NewCipher(serverHSKey, serverHSIV)
+	conn.writeCipher, err = NewCipher(serverHSKey, serverHSIV)
 	if err != nil {
 		return err
 	}
-	conn.clientCipher, err = NewCipher(clientHSKey, clientHSIV)
+	conn.readCipher, err = NewCipher(clientHSKey, clientHSIV)
 	if err != nil {
 		return err
 	}
@@ -154,11 +154,11 @@ func (conn *Connection) deriveKeys() error {
 
 	var err error
 
-	conn.serverCipher, err = NewCipher(serverAppKey, serverAppIV)
+	conn.writeCipher, err = NewCipher(serverAppKey, serverAppIV)
 	if err != nil {
 		return err
 	}
-	conn.clientCipher, err = NewCipher(clientAppKey, clientAppIV)
+	conn.readCipher, err = NewCipher(clientAppKey, clientAppIV)
 	if err != nil {
 		return err
 	}
@@ -204,6 +204,7 @@ type Cipher struct {
 	cipher cipher.AEAD
 	iv     []byte
 	seq    uint64
+	ivSeq  []byte
 }
 
 // NewCipher creates a new Cipher for the key and iv.
@@ -219,6 +220,7 @@ func NewCipher(key, iv []byte) (*Cipher, error) {
 	return &Cipher{
 		cipher: cipher,
 		iv:     iv,
+		ivSeq:  make([]byte, len(iv)),
 	}, nil
 }
 
@@ -290,16 +292,15 @@ func (cipher *Cipher) Decrypt(data []byte) (ContentType, []byte, error) {
 
 // IV creates the IV for the next encrypt/decrypt operation.
 func (cipher *Cipher) IV() []byte {
-	iv := make([]byte, len(cipher.iv))
-	copy(iv, cipher.iv)
+	copy(cipher.ivSeq[0:], cipher.iv)
 
 	var seq [8]byte
 	bo.PutUint64(seq[0:], cipher.seq)
 	cipher.seq++
 
 	for i := 0; i < len(seq); i++ {
-		iv[len(iv)-len(seq)+i] ^= seq[i]
+		cipher.ivSeq[len(cipher.ivSeq)-len(seq)+i] ^= seq[i]
 	}
 
-	return iv
+	return cipher.ivSeq
 }

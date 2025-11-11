@@ -68,7 +68,7 @@ func deriveSecret(secret []byte, label string, hash []byte) []byte {
 
 func (conn *Connection) deriveServerHandshakeKeys() error {
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
-	fmt.Printf(" - Secrets:\n")
+	fmt.Printf(" - Handshake:\n")
 
 	zeroHash := make([]byte, sha256.Size)
 	earlySecret := hkdf.Extract(sha256.New, zeroHash, zeroHash)
@@ -124,6 +124,9 @@ func (conn *Connection) deriveServerHandshakeKeys() error {
 func (conn *Connection) deriveKeys() error {
 	zeroHash := make([]byte, sha256.Size)
 	emptyHash := sha256.Sum256([]byte{})
+
+	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
+	fmt.Printf(" - Traffic  :\n")
 
 	derivedSecret := deriveSecret(conn.handshakeSecret, "derived", emptyHash[:])
 	fmt.Printf("   derived  : %x\n", derivedSecret)

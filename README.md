@@ -7,3 +7,11 @@ from [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446.html).
 
 Built for developers who want a minimal, transparent, and auditable
 TLS 1.3 stack that's easy to embed, test, or extend.
+
+## Testing TLS Server
+
+OpenSSL:
+
+``` shell
+openssl s_client -connect localhost:8443 -debug -msg -tlsextdebug -servername ephemelier.com -CAfile server-cert.pem
+```

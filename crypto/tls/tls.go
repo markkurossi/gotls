@@ -124,8 +124,7 @@ func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
 		case CTHandshake:
 			return ct, data, nil
 		default:
-			return CTInvalid, nil,
-				fmt.Errorf("unexpected handshake message: %v", ct)
+			return CTInvalid, nil, conn.alert(AlertUnexpectedMessage)
 		}
 	}
 }
@@ -430,6 +429,10 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 }
 
 func (conn *Connection) Write(p []byte) (int, error) {
+	if conn.writeCipher == nil {
+		return 0, errors.New("handshake not completed")
+	}
+
 	err := conn.WriteRecord(CTApplicationData, p)
 	if err != nil {
 		return 0, err
@@ -667,7 +670,7 @@ func (conn *Connection) alert(desc AlertDescription) error {
 	buf[0] = byte(desc.Level())
 	buf[1] = byte(desc)
 
-	// XXX encrypted alerts after handshake
+	fmt.Printf(" > Alert: level=%v, desc=%v\n", desc.Level(), desc)
 
 	return conn.WriteRecord(CTAlert, buf[:])
 }
@@ -730,7 +733,10 @@ func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
 	data := conn.rbuf[:length]
 	var err error
 
-	if conn.readCipher != nil {
+	if ct == CTApplicationData {
+		if conn.readCipher == nil {
+			return CTInvalid, nil, conn.alert(AlertUnexpectedMessage)
+		}
 		ct, data, err = conn.readCipher.Decrypt(data)
 		if err != nil {
 			return CTInvalid, nil, conn.alert(AlertBadRecordMAC)

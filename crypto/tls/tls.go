@@ -110,16 +110,6 @@ func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
 		if err != nil {
 			return CTInvalid, nil, err
 		}
-		if ct == CTApplicationData {
-			if conn.readCipher == nil {
-				return CTInvalid, nil, fmt.Errorf("unexpected %v message", ct)
-			}
-			ct, data, err = conn.readCipher.Decrypt(data)
-			if err != nil {
-				return CTInvalid, nil, conn.alert(AlertBadRecordMAC)
-			}
-		}
-
 		switch ct {
 		case CTChangeCipherSpec:
 			err = conn.recvChangeCipherSpec(data)
@@ -416,17 +406,14 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 }
 
 func (conn *Connection) Read(p []byte) (n int, err error) {
+	if conn.readCipher == nil {
+		return 0, errors.New("handshake not completed")
+	}
+
 	for len(conn.appData) == 0 {
 		ct, data, err := conn.ReadRecord()
 		if err != nil {
 			return 0, err
-		}
-		if ct != CTApplicationData {
-			return 0, conn.alert(AlertUnexpectedMessage)
-		}
-		ct, data, err = conn.readCipher.Decrypt(data)
-		if err != nil {
-			return 0, conn.alert(AlertBadRecordMAC)
 		}
 		switch ct {
 		case CTAlert:
@@ -748,7 +735,17 @@ func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
 		fmt.Printf("%x\n", conn.rbuf[:length])
 	}
 
-	return ct, conn.rbuf[:length], nil
+	data := conn.rbuf[:length]
+	var err error
+
+	if conn.readCipher != nil {
+		ct, data, err = conn.readCipher.Decrypt(data)
+		if err != nil {
+			return CTInvalid, nil, conn.alert(AlertBadRecordMAC)
+		}
+	}
+
+	return ct, data, nil
 }
 
 // WriteRecord writes a record layer record.

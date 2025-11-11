@@ -137,14 +137,7 @@ func (conn *Connection) writeHandshakeMsg(ht HandshakeType, data []byte) error {
 
 	conn.transcript.Write(data)
 
-	ct := CTHandshake
-
-	if conn.writeCipher != nil {
-		ct = CTApplicationData
-		data = conn.writeCipher.Encrypt(CTHandshake, data)
-	}
-
-	return conn.WriteRecord(ct, data)
+	return conn.WriteRecord(CTHandshake, data)
 }
 
 // ServerHandshake runs the server handshake protocol.
@@ -437,8 +430,7 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 }
 
 func (conn *Connection) Write(p []byte) (int, error) {
-	cipher := conn.writeCipher.Encrypt(CTApplicationData, p)
-	err := conn.WriteRecord(CTApplicationData, cipher)
+	err := conn.WriteRecord(CTApplicationData, p)
 	if err != nil {
 		return 0, err
 	}
@@ -750,6 +742,11 @@ func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
 
 // WriteRecord writes a record layer record.
 func (conn *Connection) WriteRecord(ct ContentType, data []byte) error {
+	if conn.writeCipher != nil {
+		data = conn.writeCipher.Encrypt(ct, data)
+		ct = CTApplicationData
+	}
+
 	var hdr [5]byte
 
 	hdr[0] = byte(ct)

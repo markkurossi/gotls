@@ -327,6 +327,17 @@ func (key KeyShareEntry) String() string {
 	return fmt.Sprintf("%v=%x", key.Group, key.KeyExchange)
 }
 
+// Clone creates an independent copy of the KeyShareEntry.
+func (key KeyShareEntry) Clone() *KeyShareEntry {
+	result := &KeyShareEntry{
+		Group:       key.Group,
+		KeyExchange: make([]byte, len(key.KeyExchange)),
+	}
+	copy(result.KeyExchange, key.KeyExchange)
+
+	return result
+}
+
 // Bytes returns the key share entry's protocol encoding.
 func (key KeyShareEntry) Bytes() []byte {
 	data, err := Marshal(key)

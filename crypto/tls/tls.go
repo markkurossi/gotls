@@ -62,6 +62,7 @@ type Connection struct {
 
 	writeCipher *Cipher
 	readCipher  *Cipher
+	appData     []byte
 }
 
 // HandshakeState defines the connection's handshake state.
@@ -415,7 +416,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 }
 
 func (conn *Connection) Read(p []byte) (n int, err error) {
-	for {
+	for len(conn.appData) == 0 {
 		ct, data, err := conn.ReadRecord()
 		if err != nil {
 			return 0, err
@@ -435,14 +436,17 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 			}
 
 		case CTApplicationData:
-			// XXX check if len(p) < len(data)
-			fmt.Printf("ct=%v, data:\n%s", ct, hex.Dump(data))
-			return copy(p, data), nil
+			conn.appData = data
 
 		default:
 			return 0, conn.alert(AlertUnexpectedMessage)
 		}
 	}
+
+	n = copy(p, conn.appData)
+	conn.appData = conn.appData[n:]
+
+	return n, nil
 }
 
 func (conn *Connection) Write(p []byte) (int, error) {

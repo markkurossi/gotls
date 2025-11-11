@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"net"
 )
 
@@ -36,6 +37,8 @@ var (
 	supportedSignatureSchemes = map[SignatureScheme]bool{
 		SigSchemeEcdsaSecp256r1Sha256: true,
 	}
+
+	_ io.ReadWriteCloser = &Connection{}
 )
 
 // Connection implements a TLS connection.
@@ -438,6 +441,12 @@ func (conn *Connection) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// Close implements io.Closer.Close.
+func (conn *Connection) Close() error {
+	conn.alert(AlertCloseNotify)
+	return conn.conn.Close()
 }
 
 func (conn *Connection) recvClientHandshake(data []byte) error {

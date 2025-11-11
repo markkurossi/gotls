@@ -347,6 +347,12 @@ func (key KeyShareEntry) Bytes() []byte {
 	return data
 }
 
+// ServerName defines a server_name extension.
+type ServerName struct {
+	NameType uint8
+	Hostname []byte `tls:"u16"`
+}
+
 // Extension defines protocol extensions.
 type Extension struct {
 	Type ExtensionType
@@ -447,6 +453,27 @@ func (ext Extension) Uint16List(lsize int) ([]uint16, error) {
 
 func (ext Extension) String() string {
 	switch ext.Type {
+	case ETServerName:
+		if len(ext.Data) < 2 {
+			return fmt.Sprintf("%v: \u26A0 %x", ext.Type, ext.Data)
+		}
+		result := fmt.Sprintf("%v:", ext.Type)
+
+		ll := int(bo.Uint16(ext.Data))
+		if 2+ll != len(ext.Data) {
+			return fmt.Sprintf("%v: \u26A0 %x", ext.Type, ext.Data)
+		}
+		for i := 2; i < len(ext.Data); {
+			var name ServerName
+			n, err := UnmarshalFrom(ext.Data[i:], &name)
+			if err != nil {
+				return fmt.Sprintf("%v: \u26A0 %x", ext.Type, ext.Data)
+			}
+			result += fmt.Sprintf(" %s", string(name.Hostname))
+			i += n
+		}
+		return result
+
 	case ETSupportedGroups:
 		arr, err := ext.Uint16List(2)
 		if err != nil {
@@ -509,16 +536,15 @@ func (ext Extension) String() string {
 			return fmt.Sprintf("%v[%d]", entry.Group, len(entry.KeyExchange))
 		}
 
-		ofs := 2
-		for ofs < len(ext.Data) {
+		for i := 2; i < len(ext.Data); {
 			var entry KeyShareEntry
-			n, err := UnmarshalFrom(ext.Data[ofs:], &entry)
+			n, err := UnmarshalFrom(ext.Data[i:], &entry)
 			if err != nil {
 				return fmt.Sprintf("%v: \u26A0 %x", ext.Type, ext.Data)
 			}
 			result += fmt.Sprintf(" %v[%d]",
 				entry.Group, len(entry.KeyExchange))
-			ofs += n
+			i += n
 		}
 		return result
 
@@ -574,6 +600,7 @@ func (et ExtensionType) String() string {
 }
 
 var tls13Extensions = map[ExtensionType]string{
+	ETServerName:          "server_name",
 	ETSupportedVersions:   "supported_versions",
 	ETSignatureAlgorithms: "signature_algorithms",
 	ETSupportedGroups:     "supported_groups",

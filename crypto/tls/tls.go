@@ -53,6 +53,7 @@ type Connection struct {
 	handshakeState   HandshakeState
 	transcript       hash.Hash
 	clientHello      *ClientHello
+	serverNames      []string
 	versions         []ProtocolVersion
 	cipherSuites     []CipherSuite
 	groups           []NamedGroup
@@ -534,6 +535,26 @@ func (conn *Connection) recvClientHello(data []byte) error {
 	col = 0
 	for _, ext := range conn.clientHello.Extensions {
 		switch ext.Type {
+		case ETServerName:
+			if len(ext.Data) < 2 {
+				return conn.decodeErrorf("%v: invalid data", ext.Type)
+			}
+			ll := int(bo.Uint16(ext.Data))
+			if 2+ll != len(ext.Data) {
+				return conn.decodeErrorf("%v: invalid data", ext.Type)
+			}
+			for i := 2; i < len(ext.Data); {
+				var name ServerName
+				n, err := UnmarshalFrom(ext.Data[i:], &name)
+				if err != nil {
+					return conn.decodeErrorf("%v: invalid data: %v",
+						ext.Type, err)
+				}
+				conn.serverNames = append(conn.serverNames,
+					string(name.Hostname))
+				i += n
+			}
+
 		case ETSupportedGroups:
 			arr, err := ext.Uint16List(2)
 			if err != nil {

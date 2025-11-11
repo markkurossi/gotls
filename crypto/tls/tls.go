@@ -54,7 +54,7 @@ type Connection struct {
 	cipherSuites     []CipherSuite
 	groups           []NamedGroup
 	signatureSchemes []SignatureScheme
-	clientKEX        *KeyShareEntry
+	peerKeyShare     *KeyShareEntry
 	sharedSecret     []byte
 	handshakeSecret  []byte
 	clientHSTr       []byte
@@ -201,7 +201,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	conn.transcript = conn.cipherSuites[0].Hash()
 	conn.transcript.Write(data)
 
-	if conn.clientKEX == nil {
+	if conn.peerKeyShare == nil {
 		// No matching group, send HelloRetryRequest.
 
 		// ClientHello1 is replaced with a special synthetic handshake
@@ -256,7 +256,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 		}
 		conn.transcript.Write(data)
 
-		if conn.clientKEX == nil {
+		if conn.peerKeyShare == nil {
 			return conn.alert(AlertHandshakeFailure)
 		}
 	}
@@ -271,7 +271,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	}
 
 	// Decode client's public key.
-	ecdhClientPub, err := ecdhCurve.NewPublicKey(conn.clientKEX.KeyExchange)
+	ecdhClientPub, err := ecdhCurve.NewPublicKey(conn.peerKeyShare.KeyExchange)
 	if err != nil {
 		return conn.decodeErrorf("invalid client public key")
 	}
@@ -594,12 +594,8 @@ func (conn *Connection) recvClientHello(data []byte) error {
 					return conn.decodeErrorf("%v: invalid data: %v",
 						ext.Type, err)
 				}
-				if supportedGroups[entry.Group] && conn.clientKEX == nil {
-					conn.clientKEX = &KeyShareEntry{
-						Group:       entry.Group,
-						KeyExchange: make([]byte, len(entry.KeyExchange)),
-					}
-					copy(conn.clientKEX.KeyExchange, entry.KeyExchange)
+				if supportedGroups[entry.Group] && conn.peerKeyShare == nil {
+					conn.peerKeyShare = entry.Clone()
 				}
 
 				i += n
@@ -631,7 +627,7 @@ func (conn *Connection) recvClientHello(data []byte) error {
 	fmt.Printf(" - cipherSuites    : %v\n", conn.cipherSuites)
 	fmt.Printf(" - groups          : %v\n", conn.groups)
 	fmt.Printf(" - signatureSchemes: %v\n", conn.signatureSchemes)
-	fmt.Printf(" - clientKEX       : %v\n", conn.clientKEX)
+	fmt.Printf(" - peerKeyShare    : %v\n", conn.peerKeyShare)
 
 	if len(conn.versions) == 0 {
 		return conn.alert(AlertProtocolVersion)

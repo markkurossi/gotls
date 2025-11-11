@@ -13,6 +13,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"log"
 	"math/big"
@@ -28,7 +29,21 @@ var (
 	certPath = "server-cert.pem"
 )
 
+var (
+	indexHTML = []byte(`HTTP/1.1 200 OK
+
+<html>
+<body>
+<h1>Hello, world!</h1>
+</body>
+</html>
+`)
+)
+
 func main() {
+	httpd := flag.Bool("httpd", false, "Simple HTTPD")
+	flag.Parse()
+
 	priv, cert, err := loadKeyAndCert(keyPath, certPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -69,7 +84,11 @@ func main() {
 					return
 				}
 				fmt.Printf("read: %s\n", buf[:n])
-				_, err = c.Write(buf[:n])
+				if *httpd {
+					_, err = c.Write(indexHTML)
+				} else {
+					_, err = c.Write(buf[:n])
+				}
 				if err != nil {
 					log.Printf("write: %v\n", err)
 					return

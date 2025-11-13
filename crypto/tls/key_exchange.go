@@ -66,7 +66,7 @@ func deriveSecret(secret []byte, label string, hash []byte) []byte {
 	return hkdfExpandLabel(secret, label, hash, sha256.Size)
 }
 
-func (conn *Connection) deriveServerHandshakeKeys() error {
+func (conn *Connection) deriveHandshakeKeys(server bool) error {
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
 	fmt.Printf(" - Handshake:\n")
 
@@ -107,15 +107,21 @@ func (conn *Connection) deriveServerHandshakeKeys() error {
 
 	// Instantiate handshake keys.
 
-	var err error
-
-	conn.writeCipher, err = NewCipher(serverHSKey, serverHSIV)
+	serverCipher, err := NewCipher(serverHSKey, serverHSIV)
 	if err != nil {
 		return err
 	}
-	conn.readCipher, err = NewCipher(clientHSKey, clientHSIV)
+	clientCipher, err := NewCipher(clientHSKey, clientHSIV)
 	if err != nil {
 		return err
+	}
+
+	if server {
+		conn.writeCipher = serverCipher
+		conn.readCipher = clientCipher
+	} else {
+		conn.writeCipher = clientCipher
+		conn.readCipher = serverCipher
 	}
 
 	return nil

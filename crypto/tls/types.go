@@ -145,13 +145,13 @@ type ClientHello struct {
 
 // ServerHello implements the server_hello message.
 type ServerHello struct {
-	HandshakeTypeLen         uint32
-	LegacyVersion            ProtocolVersion
-	Random                   [32]byte
-	LegacySessionID          []byte `tls:"u8"`
-	CipherSuite              CipherSuite
-	LegacyCompressionMethods byte
-	Extensions               []Extension `tls:"u16"`
+	HandshakeTypeLen        uint32
+	LegacyVersion           ProtocolVersion
+	Random                  [32]byte
+	LegacySessionID         []byte `tls:"u8"`
+	CipherSuite             CipherSuite
+	LegacyCompressionMethod byte
+	Extensions              []Extension `tls:"u16"`
 }
 
 // HelloRetryRequestRandom defines the well-known value of the

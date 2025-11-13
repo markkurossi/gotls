@@ -143,6 +143,84 @@ func (conn *Connection) writeHandshakeMsg(ht HandshakeType, data []byte) error {
 	return conn.WriteRecord(CTHandshake, data)
 }
 
+// ClientHandshake runs the client handshake protocol.
+func (conn *Connection) ClientHandshake() error {
+	ecdhCurve := ecdh.P256()
+	ecdhPriv, err := ecdhCurve.GenerateKey(rand.Reader)
+	if err != nil {
+		return conn.internalErrorf("failed to generate DH key: %v", err)
+	}
+
+	// ClientHello
+
+	var legacySessionID [32]byte
+	_, err = rand.Read(legacySessionID[:])
+	if err != nil {
+		return conn.internalErrorf("failed to create legacy_session_id: %v",
+			err)
+	}
+
+	keyShare := &KeyShareEntry{
+		Group:       GroupSecp256r1,
+		KeyExchange: ecdhPriv.PublicKey().Bytes(),
+	}
+
+	conn.clientHello = &ClientHello{
+		LegacyVersion:   VersionTLS12,
+		LegacySessionID: legacySessionID[:],
+		CipherSuites: []CipherSuite{
+			CipherTLSAes128GcmSha256,
+		},
+		LegacyCompressionMethods: []byte{0},
+		Extensions: []Extension{
+			NewExtension(ETSupportedGroups, GroupSecp256r1),
+			NewExtension(ETSignatureAlgorithms, SigSchemeEcdsaSecp256r1Sha256,
+				// XXX this is needed for www.google.com, check also SNI
+				SigSchemeRsaPssRsaeSha256,
+				// XXX is needed for some Amazon hosted services.
+				SigSchemeRsaPkcs1Sha256),
+			NewExtension(ETSupportedVersions, VersionTLS13),
+			NewExtension(ETKeyShare, keyShare),
+		},
+	}
+
+	_, err = rand.Read(conn.clientHello.Random[:])
+	if err != nil {
+		return conn.internalErrorf("failed to create random: %v", err)
+	}
+
+	// Init transcript.
+	conn.transcript = conn.clientHello.CipherSuites[0].Hash()
+
+	data, err := Marshal(conn.clientHello)
+	if err != nil {
+		return err
+	}
+	fmt.Printf(" > ClientHello: %v bytes\n", len(data))
+
+	err = conn.writeHandshakeMsg(HTClientHello, data)
+	if err != nil {
+		return conn.internalErrorf("write failed: %v", err)
+	}
+	conn.handshakeState = HSServerHello
+
+	// Process server messages until server's handshake is done.
+	for conn.handshakeState != HSServerDone {
+		_, data, err = conn.readHandshakeMsg()
+		if err != nil {
+			return err
+		}
+		err = conn.recvServerHandshake(data, ecdhCurve, ecdhPriv)
+		if err != nil {
+			return err
+		}
+	}
+
+	// XXX Finished
+
+	return nil
+}
+
 // ServerHandshake runs the server handshake protocol.
 func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	cert *x509.Certificate) error {
@@ -259,11 +337,11 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	// Decode client's public key.
 	ecdhClientPub, err := ecdhCurve.NewPublicKey(conn.peerKeyShare.KeyExchange)
 	if err != nil {
-		return conn.decodeErrorf("invalid client public key")
+		return conn.decodeErrorf("invalid client public key: %v", err)
 	}
 	conn.sharedSecret, err = ecdhPriv.ECDH(ecdhClientPub)
 	if err != nil {
-		return conn.decodeErrorf("ECDH failed")
+		return conn.decodeErrorf("ECDH failed: %v", err)
 	}
 
 	keyShare := &KeyShareEntry{
@@ -300,17 +378,14 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 		return conn.internalErrorf("write failed: %v", err)
 	}
 
-	err = conn.deriveServerHandshakeKeys()
+	err = conn.deriveHandshakeKeys(true)
 	if err != nil {
 		return err
 	}
 
 	// EncryptedExtensions.
 	msg := &EncryptedExtensions{
-		Extensions: []Extension{
-			//NewExtension(ETSignatureAlgorithms,
-			// SigSchemeEcdsaSecp256r1Sha256),
-		},
+		Extensions: []Extension{},
 	}
 	data, err = Marshal(msg)
 	if err != nil {
@@ -489,7 +564,7 @@ func (conn *Connection) recvClientHello(data []byte) error {
 	conn.clientHello = new(ClientHello)
 	consumed, err := UnmarshalFrom(data, conn.clientHello)
 	if err != nil {
-		return err
+		return conn.decodeErrorf("failed to decode client_hello: %v", err)
 	}
 	if consumed != len(data) {
 		return conn.decodeErrorf("trailing data after client_hello: len=%v",
@@ -524,6 +599,23 @@ func (conn *Connection) recvClientHello(data []byte) error {
 		} else {
 			conn.Debugf("%04x", int(suite))
 		}
+		col++
+	}
+	if col > 0 {
+		fmt.Println()
+	}
+	conn.Debugf("   }\n")
+
+	conn.Debugf(" - legacy_compression_methods: {")
+	col = 0
+	for _, method := range conn.clientHello.LegacyCompressionMethods {
+		if col%12 == 0 {
+			conn.Debugf("\n     ")
+			col = 0
+		} else {
+			conn.Debugf(" ")
+		}
+		conn.Debugf("%02x", method)
 		col++
 	}
 	if col > 0 {
@@ -648,6 +740,11 @@ func (conn *Connection) recvClientHello(data []byte) error {
 		len(conn.signatureSchemes) == 0 {
 		return conn.alert(AlertHandshakeFailure)
 	}
+	if len(conn.clientHello.LegacyCompressionMethods) != 1 ||
+		conn.clientHello.LegacyCompressionMethods[0] != 0 {
+		return conn.illegalParameterf("invalid legacy_compression_methods: %v",
+			conn.clientHello.LegacyCompressionMethods)
+	}
 
 	return nil
 }
@@ -678,6 +775,156 @@ func (conn *Connection) recvClientFinished(data []byte) error {
 	return nil
 }
 
+func (conn *Connection) recvServerHandshake(data []byte,
+	ecdhCurve ecdh.Curve, ecdhPriv *ecdh.PrivateKey) error {
+
+	if len(data) < 4 {
+		return conn.decodeErrorf("truncated handshake")
+	}
+	typeLen := bo.Uint32(data)
+	ht := HandshakeType(typeLen >> 24)
+	length := typeLen & 0xffffff
+	if int(length+4) != len(data) {
+		return conn.decodeErrorf(
+			"handshake length mismatch: got %v, expected %v",
+			length+4, len(data))
+	}
+	switch conn.handshakeState {
+	case HSServerHello:
+		switch ht {
+		case HTServerHello:
+			return conn.recvServerHello(data, ecdhCurve, ecdhPriv)
+		case HTFinished:
+			return conn.recvServerFinished(data)
+		}
+	}
+	return conn.illegalParameterf("%s: invalid handshake message: %v",
+		conn.handshakeState, ht)
+}
+
+func (conn *Connection) recvServerHello(data []byte,
+	ecdhCurve ecdh.Curve, ecdhPriv *ecdh.PrivateKey) error {
+
+	serverHello := new(ServerHello)
+
+	consumed, err := UnmarshalFrom(data, serverHello)
+	if err != nil {
+		return conn.decodeErrorf("failed to decode server_hello: %v", err)
+	}
+	if consumed != len(data) {
+		return conn.decodeErrorf("trailing data after server_hello: len=%v",
+			len(data)-consumed)
+	}
+
+	conn.Debugf(" < server_hello:\n")
+	if bytes.Compare(serverHello.Random[:], HelloRetryRequestRandom[:]) == 0 {
+		// No further algorithms to select.
+		conn.Debugf(" - random: HelloRetryRequestRandom\n")
+		return conn.alert(AlertHandshakeFailure)
+	}
+	// If negotiating TLS 1.2, TLS 1.3 servers MUST set the last 8 bytes of
+	// their Random value to the bytes:
+	//
+	//   44 4F 57 4E 47 52 44 01
+	//
+	// If negotiating TLS 1.1 or below, TLS 1.3 servers MUST, and TLS 1.2
+	// servers SHOULD, set the last 8 bytes of their ServerHello.Random
+	// value to the bytes:
+	//
+	//   44 4F 57 4E 47 52 44 00
+	//
+	// TLS 1.3 clients receiving a ServerHello indicating TLS 1.2 or below
+	// MUST check that the last 8 bytes are not equal to either of these
+	// values.  TLS 1.2 clients SHOULD also check that the last 8 bytes are
+	// not equal to the second value if the ServerHello indicates TLS 1.1 or
+	// below.  If a match is found, the client MUST abort the handshake with
+	// an "illegal_parameter" alert.  This mechanism provides limited
+	// protection against downgrade attacks over and above what is provided
+	// by the Finished exchange: because the ServerKeyExchange, a message
+	// present in TLS 1.2 and below, includes a signature over both random
+	// values, it is not possible for an active attacker to modify the
+	// random values without detection as long as ephemeral ciphers are
+	// used.  It does not provide downgrade protection when static RSA
+	// is used.
+	conn.Debugf(" - random: %x\n", serverHello.Random)
+
+	if bytes.Compare(serverHello.LegacySessionID,
+		conn.clientHello.LegacySessionID) != 0 {
+		return conn.illegalParameterf("legacy_session_id_echo mismatch")
+	}
+	conn.Debugf(" - cipher_suite: %v\n", serverHello.CipherSuite)
+	if serverHello.LegacyCompressionMethod != 0 {
+		return conn.illegalParameterf("invalid legacy_compression_method: %v",
+			serverHello.LegacyCompressionMethod)
+	}
+	conn.Debugf(" - extensions: {")
+	col := 0
+	for _, ext := range serverHello.Extensions {
+		switch ext.Type {
+		case ETSupportedVersions:
+			if len(ext.Data) != 2 {
+				return conn.illegalParameterf("invalid supported_versions: %v",
+					ext)
+			}
+			conn.versions = append(conn.versions,
+				ProtocolVersion(bo.Uint16(ext.Data)))
+
+		case ETKeyShare:
+			keyShare := new(KeyShareEntry)
+			consumed, err := UnmarshalFrom(ext.Data, keyShare)
+			if err != nil || consumed != len(ext.Data) {
+				return conn.illegalParameterf("invalid key_share: %v (%v/%v)",
+					err, consumed, len(ext.Data))
+			}
+			conn.peerKeyShare = keyShare
+		}
+		_, ok := tls13Extensions[ext.Type]
+		if col%12 == 0 || ok {
+			conn.Debugf("\n     ")
+			col = 0
+		} else {
+			conn.Debugf(" ")
+		}
+		col++
+
+		if ok {
+			conn.Debugf("%v", ext)
+			col = 12
+		} else {
+			conn.Debugf("%v", ext)
+		}
+	}
+	if col > 0 {
+		conn.Debugf("\n")
+	}
+	conn.Debugf("   }\n")
+
+	if conn.peerKeyShare == nil {
+		return conn.alert(AlertMissingExtension)
+	}
+	ecdhServerPub, err := ecdhCurve.NewPublicKey(conn.peerKeyShare.KeyExchange)
+	if err != nil {
+		return conn.decodeErrorf("invalid client public key: %v", err)
+	}
+	conn.sharedSecret, err = ecdhPriv.ECDH(ecdhServerPub)
+	if err != nil {
+		return conn.decodeErrorf("ECDH failed: %v", err)
+	}
+
+	conn.transcript.Write(data)
+	err = conn.deriveHandshakeKeys(false)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (conn *Connection) recvServerFinished(data []byte) error {
+	// XXX is this the same as recvClientFinished?
+	return fmt.Errorf("recvServerFinished not implemented yet")
+}
+
 func (conn *Connection) recvChangeCipherSpec(data []byte) error {
 	if len(data) != 1 || data[0] != 1 {
 		return conn.decodeErrorf("invalid change_cipher_spec")
@@ -691,6 +938,7 @@ func (conn *Connection) recvAlert(data []byte) error {
 	}
 	desc := AlertDescription(data[1])
 	fmt.Printf("alert: %v: %v\n", desc.Level(), desc)
+	// XXX should terminate the connection etc.
 	return nil
 }
 

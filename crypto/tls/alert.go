@@ -40,6 +40,15 @@ func (conn *Connection) illegalParameterf(msg string, a ...interface{}) error {
 	return orig
 }
 
+func (conn *Connection) missingExceptionf(msg string, a ...interface{}) error {
+	orig := fmt.Errorf(msg, a...)
+	err := conn.alert(AlertMissingExtension)
+	if err != nil {
+		return errors.Join(err, orig)
+	}
+	return orig
+}
+
 func (conn *Connection) internalErrorf(msg string, a ...interface{}) error {
 	orig := fmt.Errorf(msg, a...)
 	err := conn.alert(AlertInternalError)

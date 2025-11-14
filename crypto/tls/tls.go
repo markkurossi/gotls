@@ -58,6 +58,7 @@ type Connection struct {
 	groups           []NamedGroup
 	signatureSchemes []SignatureScheme
 	peerKeyShare     *KeyShareEntry
+	peerCert         *x509.Certificate
 	sharedSecret     []byte
 	handshakeSecret  []byte
 	clientHSTr       []byte
@@ -793,6 +794,16 @@ func (conn *Connection) recvServerHandshake(data []byte,
 		switch ht {
 		case HTServerHello:
 			return conn.recvServerHello(data, ecdhCurve, ecdhPriv)
+
+		case HTEncryptedExtensions:
+			return conn.recvEncryptedExtensions(data)
+
+		case HTCertificate:
+			return conn.recvCertificate(data)
+
+		case HTCertificateVerify:
+			return conn.recvCertificateVerify(data)
+
 		case HTFinished:
 			return conn.recvServerFinished(data)
 		}
@@ -804,6 +815,8 @@ func (conn *Connection) recvServerHandshake(data []byte,
 func (conn *Connection) recvServerHello(data []byte,
 	ecdhCurve ecdh.Curve, ecdhPriv *ecdh.PrivateKey) error {
 
+	conn.Debugf(" < server_hello:\n")
+
 	serverHello := new(ServerHello)
 
 	consumed, err := UnmarshalFrom(data, serverHello)
@@ -811,11 +824,10 @@ func (conn *Connection) recvServerHello(data []byte,
 		return conn.decodeErrorf("failed to decode server_hello: %v", err)
 	}
 	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after server_hello: len=%v",
+		return conn.decodeErrorf("trailing data after server_hello: %v",
 			len(data)-consumed)
 	}
 
-	conn.Debugf(" < server_hello:\n")
 	if bytes.Compare(serverHello.Random[:], HelloRetryRequestRandom[:]) == 0 {
 		// No further algorithms to select.
 		conn.Debugf(" - random: HelloRetryRequestRandom\n")
@@ -856,9 +868,110 @@ func (conn *Connection) recvServerHello(data []byte,
 		return conn.illegalParameterf("invalid legacy_compression_method: %v",
 			serverHello.LegacyCompressionMethod)
 	}
+	err = conn.processServerExtensions(serverHello.Extensions)
+	if err != nil {
+		return err
+	}
+	if conn.peerKeyShare == nil {
+		return conn.missingExceptionf("key_share")
+	}
+	if len(conn.versions) == 0 {
+		return conn.missingExceptionf("supported_versions")
+	}
+	if conn.versions[0] != VersionTLS13 {
+		return conn.alert(AlertProtocolVersion)
+	}
+
+	ecdhServerPub, err := ecdhCurve.NewPublicKey(conn.peerKeyShare.KeyExchange)
+	if err != nil {
+		return conn.decodeErrorf("invalid client public key: %v", err)
+	}
+	conn.sharedSecret, err = ecdhPriv.ECDH(ecdhServerPub)
+	if err != nil {
+		return conn.decodeErrorf("ECDH failed: %v", err)
+	}
+
+	conn.transcript.Write(data)
+	err = conn.deriveHandshakeKeys(false)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (conn *Connection) recvEncryptedExtensions(data []byte) error {
+	conn.Debugf(" < encrypted_extensions\n")
+
+	encryptedExtensions := new(EncryptedExtensions)
+	consumed, err := UnmarshalFrom(data, encryptedExtensions)
+	if err != nil {
+		return conn.decodeErrorf("failed to decode encrypted_extensions: %v",
+			err)
+	}
+	if consumed != len(data) {
+		return conn.decodeErrorf("trailing data after encrypted_extensions: %d",
+			len(data)-consumed)
+	}
+	err = conn.processServerExtensions(encryptedExtensions.Extensions)
+	if err != nil {
+		return err
+	}
+	// XXX check which encrypted extensions are allowed
+
+	return nil
+}
+
+func (conn *Connection) recvCertificate(data []byte) error {
+	conn.Debugf(" < certificate\n")
+
+	certificate := new(Certificate)
+	consumed, err := UnmarshalFrom(data, certificate)
+	if err != nil {
+		return conn.decodeErrorf("failed to decode certificate: %v", err)
+	}
+	if consumed != len(data) {
+		return conn.decodeErrorf("trailing data after certificate: %d",
+			len(data)-consumed)
+	}
+	if len(certificate.CertificateList) == 0 {
+		return conn.alert(AlertCertificateRequired)
+	}
+	eeCert := certificate.CertificateList[0]
+	conn.peerCert, err = x509.ParseCertificate(eeCert.Data)
+	if err != nil {
+		return conn.alert(AlertBadCertificate)
+	}
+
+	fmt.Printf(" - PublicKeyAlgorithm: %v\n", conn.peerCert.PublicKeyAlgorithm)
+
+	return nil
+}
+
+func (conn *Connection) recvCertificateVerify(data []byte) error {
+	conn.Debugf(" < certificate_verify\n")
+
+	verify := new(CertificateVerify)
+	consumed, err := UnmarshalFrom(data, verify)
+	if err != nil {
+		return conn.decodeErrorf("failed to decode certificate_verify: %v", err)
+	}
+	if consumed != len(data) {
+		return conn.decodeErrorf("trailing data after certificate_verify: %d",
+			len(data)-consumed)
+	}
+
+	fmt.Printf(" - SignatureScheme: %v\n", verify.Algorithm)
+
+	// XXX conn.serverCert.Verify()
+
+	return nil
+}
+
+func (conn *Connection) processServerExtensions(extensions []Extension) error {
 	conn.Debugf(" - extensions: {")
 	col := 0
-	for _, ext := range serverHello.Extensions {
+	for _, ext := range extensions {
 		switch ext.Type {
 		case ETSupportedVersions:
 			if len(ext.Data) != 2 {
@@ -897,24 +1010,6 @@ func (conn *Connection) recvServerHello(data []byte,
 		conn.Debugf("\n")
 	}
 	conn.Debugf("   }\n")
-
-	if conn.peerKeyShare == nil {
-		return conn.alert(AlertMissingExtension)
-	}
-	ecdhServerPub, err := ecdhCurve.NewPublicKey(conn.peerKeyShare.KeyExchange)
-	if err != nil {
-		return conn.decodeErrorf("invalid client public key: %v", err)
-	}
-	conn.sharedSecret, err = ecdhPriv.ECDH(ecdhServerPub)
-	if err != nil {
-		return conn.decodeErrorf("ECDH failed: %v", err)
-	}
-
-	conn.transcript.Write(data)
-	err = conn.deriveHandshakeKeys(false)
-	if err != nil {
-		return err
-	}
 
 	return nil
 }

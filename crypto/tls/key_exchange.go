@@ -11,7 +11,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -180,7 +179,7 @@ var (
 	clientSignatureCtx = []byte("TLS 1.3, client CertificateVerify")
 )
 
-func (conn *Connection) serverCertificateVerify() ([]byte, error) {
+func (conn *Connection) certificateVerify(hash crypto.Hash) []byte {
 	data := make([]byte, 0, 64+len(serverSignatureCtx)+1+conn.transcript.Size())
 
 	for i := 0; i < 64; i++ {
@@ -190,9 +189,10 @@ func (conn *Connection) serverCertificateVerify() ([]byte, error) {
 	data = append(data, 0)
 	data = conn.transcript.Sum(data)
 
-	sum := sha256.Sum256(data)
+	h := hash.New()
+	h.Write(data)
 
-	return conn.serverKey.Sign(rand.Reader, sum[:], crypto.SHA256)
+	return h.Sum(nil)
 }
 
 func (conn *Connection) finished(server bool) []byte {

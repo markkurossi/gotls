@@ -8,9 +8,13 @@ package tls
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/dsa"
 	"crypto/ecdh"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/binary"
 	"errors"
@@ -416,7 +420,9 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	}
 
 	// CertificateVerify.
-	signature, err := conn.serverCertificateVerify()
+	hashFunc := crypto.SHA256
+	digest := conn.certificateVerify(hashFunc)
+	signature, err := conn.serverKey.Sign(rand.Reader, digest, hashFunc)
 	if err != nil {
 		return conn.internalErrorf("signature failed: %v", err)
 	}
@@ -902,6 +908,8 @@ func (conn *Connection) recvEncryptedExtensions(data []byte) error {
 	}
 	// XXX check which encrypted extensions are allowed
 
+	conn.transcript.Write(data)
+
 	return nil
 }
 
@@ -924,6 +932,8 @@ func (conn *Connection) recvCertificate(data []byte) error {
 
 	fmt.Printf(" - PublicKeyAlgorithm: %v\n", conn.peerCert.PublicKeyAlgorithm)
 
+	conn.transcript.Write(data)
+
 	return nil
 }
 
@@ -938,7 +948,105 @@ func (conn *Connection) recvCertificateVerify(data []byte) error {
 
 	fmt.Printf(" - SignatureScheme: %v\n", verify.Algorithm)
 
+	var hashFunc crypto.Hash
+	switch verify.Algorithm {
+	case SigSchemeRsaPkcs1Sha256, SigSchemeEcdsaSecp256r1Sha256,
+		SigSchemeRsaPssRsaeSha256, SigSchemeRsaPssPssSha256:
+		hashFunc = crypto.SHA256
+
+	case SigSchemeRsaPkcs1Sha384, SigSchemeEcdsaSecp384r1Sha384,
+		SigSchemeRsaPssRsaeSha384, SigSchemeRsaPssPssSha384:
+		hashFunc = crypto.SHA384
+
+	case SigSchemeRsaPkcs1Sha512, SigSchemeEcdsaSecp521r1Sha512,
+		SigSchemeRsaPssRsaeSha512, SigSchemeRsaPssPssSha512:
+		hashFunc = crypto.SHA512
+
+	default:
+		conn.alert(AlertUnsupportedCertificate)
+	}
+
+	var verifyPubkeyAlg x509.PublicKeyAlgorithm
+	switch verify.Algorithm {
+	case SigSchemeEcdsaSecp256r1Sha256, SigSchemeEcdsaSecp384r1Sha384,
+		SigSchemeEcdsaSecp521r1Sha512:
+		verifyPubkeyAlg = x509.ECDSA
+
+	case SigSchemeRsaPkcs1Sha1, SigSchemeRsaPkcs1Sha256,
+		SigSchemeRsaPkcs1Sha384, SigSchemeRsaPkcs1Sha512,
+		SigSchemeRsaPssPssSha256, SigSchemeRsaPssPssSha384,
+		SigSchemeRsaPssPssSha512, SigSchemeRsaPssRsaeSha256,
+		SigSchemeRsaPssRsaeSha384, SigSchemeRsaPssRsaeSha512:
+		verifyPubkeyAlg = x509.RSA
+
+	default:
+		conn.alert(AlertUnsupportedCertificate)
+	}
+	_ = verifyPubkeyAlg
+
+	digest := conn.certificateVerify(hashFunc)
+
+	var pubkeyAlg x509.PublicKeyAlgorithm
+	var verifyResult bool
+
+	switch pub := conn.peerCert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		pubkeyAlg = x509.RSA
+		switch verify.Algorithm {
+		case SigSchemeRsaPkcs1Sha1, SigSchemeRsaPkcs1Sha256,
+			SigSchemeRsaPkcs1Sha384, SigSchemeRsaPkcs1Sha512:
+			err = rsa.VerifyPKCS1v15(pub, hashFunc, digest, verify.Signature)
+			if err != nil {
+				conn.Debugf(" - VerifyPKCSv15 failed: %v\n", err)
+			} else {
+				verifyResult = true
+			}
+
+		case SigSchemeRsaPssPssSha256, SigSchemeRsaPssPssSha384,
+			SigSchemeRsaPssPssSha512, SigSchemeRsaPssRsaeSha256,
+			SigSchemeRsaPssRsaeSha384, SigSchemeRsaPssRsaeSha512:
+			err = rsa.VerifyPSS(pub, hashFunc, digest, verify.Signature, nil)
+			if err != nil {
+				conn.Debugf(" - VerifyPSS failed: %v\n", err)
+			} else {
+				verifyResult = true
+			}
+
+		default:
+			return conn.alert(AlertUnsupportedCertificate)
+		}
+
+	case *dsa.PublicKey:
+		conn.Debugf(" - DSA public key\n")
+		pubkeyAlg = x509.DSA
+		return conn.alert(AlertUnsupportedCertificate)
+
+	case *ecdsa.PublicKey:
+		pubkeyAlg = x509.ECDSA
+		verifyResult = ecdsa.VerifyASN1(pub, digest, verify.Signature)
+
+	case ed25519.PublicKey:
+		conn.Debugf(" - Ed25519 public key\n")
+		pubkeyAlg = x509.Ed25519
+		return conn.alert(AlertUnsupportedCertificate)
+
+	default:
+		return conn.alert(AlertUnsupportedCertificate)
+	}
+	if !verifyResult {
+		fmt.Printf(" - certificate verification failed\n")
+		return conn.alert(AlertDecryptError)
+	}
+
+	if verifyPubkeyAlg != pubkeyAlg {
+		conn.Debugf(" - verifyPubkeyAlg=%v does not match pubkeyAlg=%v",
+			verifyPubkeyAlg, pubkeyAlg)
+		return conn.alert(AlertBadCertificate)
+	}
+
 	// XXX conn.serverCert.Verify()
+
+	conn.transcript.Write(data)
 
 	return nil
 }

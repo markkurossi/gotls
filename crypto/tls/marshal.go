@@ -158,18 +158,30 @@ func marshalValue(out *bytes.Buffer, value reflect.Value, length int) error {
 	return nil
 }
 
+// Unmarshal decodes the value v from the buffer buf. It is an error
+// if the buffer has any trailing bytes that were not decoded.
+func Unmarshal(buf []byte, v interface{}) error {
+	consumed, err := UnmarshalFrom(buf, v)
+	if err != nil {
+		return err
+	}
+	if consumed != len(buf) {
+		return fmt.Errorf("unmarshal: %v trailing bytes", len(buf)-consumed)
+	}
+	return nil
+}
+
 // UnmarshalFrom decodes the value v from the buffer buf.
 func UnmarshalFrom(buf []byte, v interface{}) (int, error) {
 	in := bytes.NewReader(buf)
-	err := Unmarshal(in, v)
+	err := unmarshal(in, v)
 	if err != nil {
 		return len(buf) - in.Len(), err
 	}
 	return len(buf) - in.Len(), nil
 }
 
-// Unmarshal decodes the value v from the reader in.
-func Unmarshal(in *bytes.Reader, v interface{}) error {
+func unmarshal(in *bytes.Reader, v interface{}) error {
 	return unmarshalValue(in, reflect.ValueOf(v), 0)
 }
 

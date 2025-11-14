@@ -562,13 +562,9 @@ func (conn *Connection) recvClientHandshake(data []byte) error {
 
 func (conn *Connection) recvClientHello(data []byte) error {
 	conn.clientHello = new(ClientHello)
-	consumed, err := UnmarshalFrom(data, conn.clientHello)
+	err := Unmarshal(data, conn.clientHello)
 	if err != nil {
 		return conn.decodeErrorf("failed to decode client_hello: %v", err)
-	}
-	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after client_hello: len=%v",
-			len(data)-consumed)
 	}
 
 	// Clear all negotiation parameters from the initial ClientHello.
@@ -701,7 +697,6 @@ func (conn *Connection) recvClientHello(data []byte) error {
 				if supportedGroups[entry.Group] && conn.peerKeyShare == nil {
 					conn.peerKeyShare = entry.Clone()
 				}
-
 				i += n
 			}
 		}
@@ -752,13 +747,9 @@ func (conn *Connection) recvClientHello(data []byte) error {
 func (conn *Connection) recvClientFinished(data []byte) error {
 	var finished Finished
 
-	consumed, err := UnmarshalFrom(data, &finished)
+	err := Unmarshal(data, &finished)
 	if err != nil {
 		return err
-	}
-	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after client finished: len=%d",
-			len(data)-consumed)
 	}
 	conn.Debugf(" < finished:\n")
 	conn.Debugf(" - verify_data: %x\n", finished.VerifyData)
@@ -819,13 +810,9 @@ func (conn *Connection) recvServerHello(data []byte,
 
 	serverHello := new(ServerHello)
 
-	consumed, err := UnmarshalFrom(data, serverHello)
+	err := Unmarshal(data, serverHello)
 	if err != nil {
 		return conn.decodeErrorf("failed to decode server_hello: %v", err)
-	}
-	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after server_hello: %v",
-			len(data)-consumed)
 	}
 
 	if bytes.Compare(serverHello.Random[:], HelloRetryRequestRandom[:]) == 0 {
@@ -904,14 +891,10 @@ func (conn *Connection) recvEncryptedExtensions(data []byte) error {
 	conn.Debugf(" < encrypted_extensions\n")
 
 	encryptedExtensions := new(EncryptedExtensions)
-	consumed, err := UnmarshalFrom(data, encryptedExtensions)
+	err := Unmarshal(data, encryptedExtensions)
 	if err != nil {
 		return conn.decodeErrorf("failed to decode encrypted_extensions: %v",
 			err)
-	}
-	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after encrypted_extensions: %d",
-			len(data)-consumed)
 	}
 	err = conn.processServerExtensions(encryptedExtensions.Extensions)
 	if err != nil {
@@ -926,13 +909,9 @@ func (conn *Connection) recvCertificate(data []byte) error {
 	conn.Debugf(" < certificate\n")
 
 	certificate := new(Certificate)
-	consumed, err := UnmarshalFrom(data, certificate)
+	err := Unmarshal(data, certificate)
 	if err != nil {
 		return conn.decodeErrorf("failed to decode certificate: %v", err)
-	}
-	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after certificate: %d",
-			len(data)-consumed)
 	}
 	if len(certificate.CertificateList) == 0 {
 		return conn.alert(AlertCertificateRequired)
@@ -952,13 +931,9 @@ func (conn *Connection) recvCertificateVerify(data []byte) error {
 	conn.Debugf(" < certificate_verify\n")
 
 	verify := new(CertificateVerify)
-	consumed, err := UnmarshalFrom(data, verify)
+	err := Unmarshal(data, verify)
 	if err != nil {
 		return conn.decodeErrorf("failed to decode certificate_verify: %v", err)
-	}
-	if consumed != len(data) {
-		return conn.decodeErrorf("trailing data after certificate_verify: %d",
-			len(data)-consumed)
 	}
 
 	fmt.Printf(" - SignatureScheme: %v\n", verify.Algorithm)
@@ -983,10 +958,9 @@ func (conn *Connection) processServerExtensions(extensions []Extension) error {
 
 		case ETKeyShare:
 			keyShare := new(KeyShareEntry)
-			consumed, err := UnmarshalFrom(ext.Data, keyShare)
-			if err != nil || consumed != len(ext.Data) {
-				return conn.illegalParameterf("invalid key_share: %v (%v/%v)",
-					err, consumed, len(ext.Data))
+			err := Unmarshal(ext.Data, keyShare)
+			if err != nil {
+				return conn.illegalParameterf("invalid key_share: %v", err)
 			}
 			conn.peerKeyShare = keyShare
 		}

@@ -126,7 +126,7 @@ func (conn *Connection) deriveHandshakeKeys(server bool) error {
 	return nil
 }
 
-func (conn *Connection) deriveKeys() error {
+func (conn *Connection) deriveKeys(server bool, transcript []byte) error {
 	zeroHash := make([]byte, sha256.Size)
 	emptyHash := sha256.Sum256([]byte{})
 
@@ -140,7 +140,6 @@ func (conn *Connection) deriveKeys() error {
 	fmt.Printf("   master   : %x\n", masterSecret)
 
 	// Derive application traffic secrets.
-	transcript := conn.transcript.Sum(nil)
 	clientAppTr := deriveSecret(masterSecret, "c ap traffic", transcript)
 	serverAppTr := deriveSecret(masterSecret, "s ap traffic", transcript)
 
@@ -160,15 +159,21 @@ func (conn *Connection) deriveKeys() error {
 
 	// Instantiate application keys.
 
-	var err error
-
-	conn.writeCipher, err = NewCipher(serverAppKey, serverAppIV)
+	serverCipher, err := NewCipher(serverAppKey, serverAppIV)
 	if err != nil {
 		return err
 	}
-	conn.readCipher, err = NewCipher(clientAppKey, clientAppIV)
+	clientCipher, err := NewCipher(clientAppKey, clientAppIV)
 	if err != nil {
 		return err
+	}
+
+	if server {
+		conn.writeCipher = serverCipher
+		conn.readCipher = clientCipher
+	} else {
+		conn.writeCipher = clientCipher
+		conn.readCipher = serverCipher
 	}
 
 	return nil
@@ -195,6 +200,8 @@ func (conn *Connection) certificateVerify(hash crypto.Hash) []byte {
 	return h.Sum(nil)
 }
 
+// Finished computes the finished verification code for client/server
+// depending on the server argument.
 func (conn *Connection) finished(server bool) []byte {
 	var baseKey []byte
 	if server {

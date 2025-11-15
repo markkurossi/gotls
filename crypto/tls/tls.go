@@ -219,8 +219,32 @@ func (conn *Connection) ClientHandshake() error {
 			return err
 		}
 	}
+	conn.handshakeState = HSServerDone
 
-	// XXX Finished
+	transcript := conn.transcript.Sum(nil)
+
+	// Finished.
+	verifyData := conn.finished(false)
+	var vd32 [32]byte
+	copy(vd32[0:], verifyData)
+	finished := &Finished{
+		VerifyData: vd32,
+	}
+	data, err = Marshal(finished)
+	if err != nil {
+		return conn.internalErrorf("marshal failed: %v", err)
+	}
+	fmt.Printf(" > Finished: %v bytes\n", len(data))
+	err = conn.writeHandshakeMsg(HTFinished, data)
+	if err != nil {
+		return conn.internalErrorf("write failed: %v", err)
+	}
+	conn.handshakeState = HSDone
+
+	err = conn.deriveKeys(false, transcript)
+	if err != nil {
+		return conn.internalErrorf("key derivation failed: %v", err)
+	}
 
 	return nil
 }
@@ -464,6 +488,8 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	// application keys once the handshake is complete. Please, note
 	// that the client Finished is encrypted with the handshake keys.
 
+	transcript := conn.transcript.Sum(nil)
+
 	// Server handshake done. Read client messages until Finished to
 	// complete the handshake.
 	for conn.handshakeState != HSDone {
@@ -474,7 +500,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 		}
 	}
 
-	err = conn.deriveKeys()
+	err = conn.deriveKeys(true, transcript)
 	if err != nil {
 		return conn.internalErrorf("key derivation failed: %v", err)
 	}
@@ -559,7 +585,7 @@ func (conn *Connection) recvClientHandshake(data []byte) error {
 			return conn.internalErrorf("client %v not implemented yet", ht)
 
 		case HTFinished:
-			return conn.recvClientFinished(data)
+			return conn.recvFinished(true, data)
 		}
 	}
 	return conn.illegalParameterf("%s: invalid handshake message: %v",
@@ -750,7 +776,7 @@ func (conn *Connection) recvClientHello(data []byte) error {
 	return nil
 }
 
-func (conn *Connection) recvClientFinished(data []byte) error {
+func (conn *Connection) recvFinished(server bool, data []byte) error {
 	var finished Finished
 
 	err := Unmarshal(data, &finished)
@@ -760,14 +786,22 @@ func (conn *Connection) recvClientFinished(data []byte) error {
 	conn.Debugf(" < finished:\n")
 	conn.Debugf(" - verify_data: %x\n", finished.VerifyData)
 
-	verifyData := conn.finished(false)
+	// When computing our expected peer verification code, reverse our
+	// role flag server.
+	verifyData := conn.finished(!server)
 	conn.Debugf(" - computed   : %x\n", verifyData)
 
 	if bytes.Compare(finished.VerifyData[:], verifyData) != 0 {
 		return conn.alert(AlertDecryptError)
 	}
 
-	conn.handshakeState = HSDone
+	if server {
+		conn.handshakeState = HSDone
+	} else {
+		conn.handshakeState = HSServerDone
+	}
+
+	conn.transcript.Write(data)
 
 	return nil
 }
@@ -802,7 +836,7 @@ func (conn *Connection) recvServerHandshake(data []byte,
 			return conn.recvCertificateVerify(data)
 
 		case HTFinished:
-			return conn.recvServerFinished(data)
+			return conn.recvFinished(false, data)
 		}
 	}
 	return conn.illegalParameterf("%s: invalid handshake message: %v",
@@ -1094,11 +1128,6 @@ func (conn *Connection) processServerExtensions(extensions []Extension) error {
 	conn.Debugf("   }\n")
 
 	return nil
-}
-
-func (conn *Connection) recvServerFinished(data []byte) error {
-	// XXX is this the same as recvClientFinished?
-	return fmt.Errorf("recvServerFinished not implemented yet")
 }
 
 func (conn *Connection) recvChangeCipherSpec(data []byte) error {

@@ -44,10 +44,18 @@ var (
 	_ io.ReadWriteCloser = &Connection{}
 )
 
+// Config defines TLS client and server configuration options.
+type Config struct {
+	Debug       bool
+	PrivateKey  *ecdsa.PrivateKey
+	Certificate *x509.Certificate
+}
+
 // Connection implements a TLS connection.
 type Connection struct {
-	conn net.Conn
-	rbuf []byte
+	conn   net.Conn
+	config *Config
+	rbuf   []byte
 
 	serverKey  *ecdsa.PrivateKey
 	serverCert *x509.Certificate
@@ -100,16 +108,17 @@ var handshakeStates = map[HandshakeState]string{
 }
 
 // NewConnection creates a new TLS connection for the argument conn.
-func NewConnection(conn net.Conn) *Connection {
+func NewConnection(conn net.Conn, config *Config) *Connection {
 	return &Connection{
-		conn: conn,
-		rbuf: make([]byte, 65536),
+		conn:   conn,
+		config: config,
+		rbuf:   make([]byte, 65536),
 	}
 }
 
 // Debugf prints debug output for the connection.
 func (conn *Connection) Debugf(format string, a ...interface{}) {
-	if true {
+	if conn.config.Debug {
 		fmt.Printf(format, a...)
 	}
 }

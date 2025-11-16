@@ -16,6 +16,7 @@ import (
 )
 
 func main() {
+	fDebug := flag.Bool("d", false, "debug output")
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
@@ -26,7 +27,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	conn := tls.NewConnection(c)
+	conn := tls.NewConnection(c, &tls.Config{
+		Debug: *fDebug,
+	})
 
 	err = conn.ClientHandshake()
 	if err != nil {

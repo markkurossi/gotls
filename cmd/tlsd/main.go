@@ -41,6 +41,7 @@ var (
 )
 
 func main() {
+	fDebug := flag.Bool("d", false, "debug output")
 	httpd := flag.Bool("httpd", false, "Simple HTTPD")
 	flag.Parse()
 
@@ -69,7 +70,9 @@ func main() {
 			log.Printf("accept failed: %v\n", err)
 			continue
 		}
-		conn := tls.NewConnection(c)
+		conn := tls.NewConnection(c, &tls.Config{
+			Debug: *fDebug,
+		})
 		go func(c *tls.Connection) {
 			err := c.ServerHandshake(priv, cert)
 			if err != nil {

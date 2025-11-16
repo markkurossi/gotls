@@ -16,7 +16,7 @@ func (conn *Connection) alert(desc AlertDescription) error {
 	buf[0] = byte(desc.Level())
 	buf[1] = byte(desc)
 
-	fmt.Printf(" > Alert: level=%v, desc=%v\n", desc.Level(), desc)
+	conn.Debugf(" > Alert: level=%v, desc=%v\n", desc.Level(), desc)
 
 	err := conn.WriteRecord(CTAlert, buf[:])
 	if err != nil {
@@ -25,6 +25,12 @@ func (conn *Connection) alert(desc AlertDescription) error {
 	if desc.Level() == AlertLevelWarning {
 		return nil
 	}
+
+	err = conn.conn.Close()
+	if err != nil {
+		return fmt.Errorf("close after %w failed: %w", desc, err)
+	}
+
 	return desc
 }
 

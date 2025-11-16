@@ -109,7 +109,9 @@ func NewConnection(conn net.Conn) *Connection {
 
 // Debugf prints debug output for the connection.
 func (conn *Connection) Debugf(format string, a ...interface{}) {
-	fmt.Printf(format, a...)
+	if true {
+		fmt.Printf(format, a...)
+	}
 }
 
 func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
@@ -209,7 +211,7 @@ func (conn *Connection) ClientHandshake() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf(" > ClientHello: %v bytes\n", len(data))
+	conn.Debugf(" > ClientHello: %v bytes\n", len(data))
 
 	err = conn.writeHandshakeMsg(HTClientHello, data)
 	if err != nil {
@@ -243,7 +245,7 @@ func (conn *Connection) ClientHandshake() error {
 	if err != nil {
 		return conn.internalErrorf("marshal failed: %v", err)
 	}
-	fmt.Printf(" > Finished: %v bytes\n", len(data))
+	conn.Debugf(" > Finished: %v bytes\n", len(data))
 	err = conn.writeHandshakeMsg(HTFinished, data)
 	if err != nil {
 		return conn.internalErrorf("write failed: %v", err)
@@ -339,7 +341,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 		if err != nil {
 			return conn.internalErrorf("marshal failed: %v", err)
 		}
-		fmt.Printf(" > HelloRetryRequest: %v bytes\n", len(data))
+		conn.Debugf(" > HelloRetryRequest: %v bytes\n", len(data))
 
 		err = conn.writeHandshakeMsg(HTServerHello, data)
 		if err != nil {
@@ -408,7 +410,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	if err != nil {
 		return conn.internalErrorf("marshal failed: %v", err)
 	}
-	fmt.Printf(" > ServerHello: %v bytes\n", len(data))
+	conn.Debugf(" > ServerHello: %v bytes\n", len(data))
 
 	err = conn.writeHandshakeMsg(HTServerHello, data)
 	if err != nil {
@@ -428,7 +430,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	if err != nil {
 		return conn.internalErrorf("marshal failed: %v", err)
 	}
-	fmt.Printf(" > EncryptedExtensions: %v bytes\n", len(data))
+	conn.Debugf(" > EncryptedExtensions: %v bytes\n", len(data))
 	err = conn.writeHandshakeMsg(HTEncryptedExtensions, data)
 	if err != nil {
 		return conn.internalErrorf("write failed: %v", err)
@@ -446,7 +448,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	if err != nil {
 		return conn.internalErrorf("marshal failed: %v", err)
 	}
-	fmt.Printf(" > Certificate: %v bytes\n", len(data))
+	conn.Debugf(" > Certificate: %v bytes\n", len(data))
 	err = conn.writeHandshakeMsg(HTCertificate, data)
 	if err != nil {
 		return conn.internalErrorf("write failed: %v", err)
@@ -467,7 +469,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	if err != nil {
 		return conn.internalErrorf("marshal failed: %v", err)
 	}
-	fmt.Printf(" > CertificateVerify: %v bytes\n", len(data))
+	conn.Debugf(" > CertificateVerify: %v bytes\n", len(data))
 	err = conn.writeHandshakeMsg(HTCertificateVerify, data)
 	if err != nil {
 		return conn.internalErrorf("write failed: %v", err)
@@ -484,7 +486,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	if err != nil {
 		return conn.internalErrorf("marshal failed: %v", err)
 	}
-	fmt.Printf(" > Finished: %v bytes\n", len(data))
+	conn.Debugf(" > Finished: %v bytes\n", len(data))
 	err = conn.writeHandshakeMsg(HTFinished, data)
 	if err != nil {
 		return conn.internalErrorf("write failed: %v", err)
@@ -645,7 +647,7 @@ func (conn *Connection) recvClientHello(data []byte) error {
 		col++
 	}
 	if col > 0 {
-		fmt.Println()
+		conn.Debugf("\n")
 	}
 	conn.Debugf("   }\n")
 
@@ -662,7 +664,7 @@ func (conn *Connection) recvClientHello(data []byte) error {
 		col++
 	}
 	if col > 0 {
-		fmt.Println()
+		conn.Debugf("\n")
 	}
 	conn.Debugf("   }\n")
 
@@ -769,11 +771,11 @@ func (conn *Connection) recvClientHello(data []byte) error {
 	}
 	conn.Debugf("   }\n")
 
-	fmt.Printf(" - versions        : %v\n", conn.versions)
-	fmt.Printf(" - cipherSuites    : %v\n", conn.cipherSuites)
-	fmt.Printf(" - groups          : %v\n", conn.groups)
-	fmt.Printf(" - signatureSchemes: %v\n", conn.signatureSchemes)
-	fmt.Printf(" - peerKeyShare    : %v\n", conn.peerKeyShare)
+	conn.Debugf(" - versions        : %v\n", conn.versions)
+	conn.Debugf(" - cipherSuites    : %v\n", conn.cipherSuites)
+	conn.Debugf(" - groups          : %v\n", conn.groups)
+	conn.Debugf(" - signatureSchemes: %v\n", conn.signatureSchemes)
+	conn.Debugf(" - peerKeyShare    : %v\n", conn.peerKeyShare)
 
 	if len(conn.versions) == 0 {
 		return conn.alert(AlertProtocolVersion)
@@ -985,7 +987,7 @@ func (conn *Connection) recvCertificate(data []byte) error {
 		return conn.alert(AlertBadCertificate)
 	}
 
-	fmt.Printf(" - PublicKeyAlgorithm: %v\n", conn.peerCert.PublicKeyAlgorithm)
+	conn.Debugf(" - PublicKeyAlgorithm: %v\n", conn.peerCert.PublicKeyAlgorithm)
 
 	conn.transcript.Write(data)
 
@@ -1001,7 +1003,7 @@ func (conn *Connection) recvCertificateVerify(data []byte) error {
 		return conn.decodeErrorf("failed to decode certificate_verify: %v", err)
 	}
 
-	fmt.Printf(" - SignatureScheme: %v\n", verify.Algorithm)
+	conn.Debugf(" - SignatureScheme: %v\n", verify.Algorithm)
 
 	var hashFunc crypto.Hash
 	switch verify.Algorithm {
@@ -1089,7 +1091,7 @@ func (conn *Connection) recvCertificateVerify(data []byte) error {
 		return conn.alert(AlertUnsupportedCertificate)
 	}
 	if !verifyResult {
-		fmt.Printf(" - certificate verification failed\n")
+		conn.Debugf(" - certificate verification failed\n")
 		return conn.alert(AlertDecryptError)
 	}
 

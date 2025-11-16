@@ -12,16 +12,17 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
 
 	"github.com/markkurossi/gotls/crypto/hkdf"
 )
 
-var (
-	errUnexpectedMessage = errors.New("unexpected_message")
-)
+func (conn *Connection) keydbgf(format string, a ...interface{}) {
+	if true {
+		fmt.Printf(format, a...)
+	}
+}
 
 // HKDF-Expand-Label as per TLS 1.3 spec: 7.1. Key Schedule, page 91
 func hkdfExpandLabel(secret []byte, label string, context []byte,
@@ -67,19 +68,19 @@ func deriveSecret(secret []byte, label string, hash []byte) []byte {
 
 func (conn *Connection) deriveHandshakeKeys(server bool) error {
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
-	fmt.Printf(" - Handshake:\n")
+	conn.keydbgf(" - Handshake:\n")
 
 	zeroHash := make([]byte, sha256.Size)
 	earlySecret := hkdf.Extract(sha256.New, zeroHash, zeroHash)
-	fmt.Printf("   early    : %x\n", earlySecret)
+	conn.keydbgf("   early    : %x\n", earlySecret)
 
 	emptyHash := sha256.Sum256([]byte{})
 	derivedSecret := deriveSecret(earlySecret, "derived", emptyHash[:])
-	fmt.Printf("   derived  : %x\n", derivedSecret)
+	conn.keydbgf("   derived  : %x\n", derivedSecret)
 
 	conn.handshakeSecret = hkdf.Extract(sha256.New, conn.sharedSecret,
 		derivedSecret)
-	fmt.Printf("   handshake: %x\n", conn.handshakeSecret)
+	conn.keydbgf("   handshake: %x\n", conn.handshakeSecret)
 
 	// Derive handshake traffic secrets.
 	transcript := conn.transcript.Sum(nil)
@@ -87,22 +88,22 @@ func (conn *Connection) deriveHandshakeKeys(server bool) error {
 		transcript)
 	conn.serverHSTr = deriveSecret(conn.handshakeSecret, "s hs traffic",
 		transcript)
-	fmt.Printf("   c-hs-tr  : %x\n", conn.clientHSTr)
-	fmt.Printf("   s-hs-tr  : %x\n", conn.serverHSTr)
+	conn.keydbgf("   c-hs-tr  : %x\n", conn.clientHSTr)
+	conn.keydbgf("   s-hs-tr  : %x\n", conn.serverHSTr)
 
 	// Derive keys and IVs from traffic secrets.
 
 	clientHSKey := hkdfExpandLabel(conn.clientHSTr, "key", nil, 16)
 	clientHSIV := hkdfExpandLabel(conn.clientHSTr, "iv", nil, 12)
 
-	fmt.Printf("   c-hs-key : %x\n", clientHSKey)
-	fmt.Printf("   c-hs-iv  : %x\n", clientHSIV)
+	conn.keydbgf("   c-hs-key : %x\n", clientHSKey)
+	conn.keydbgf("   c-hs-iv  : %x\n", clientHSIV)
 
 	serverHSKey := hkdfExpandLabel(conn.serverHSTr, "key", nil, 16)
 	serverHSIV := hkdfExpandLabel(conn.serverHSTr, "iv", nil, 12)
 
-	fmt.Printf("   s-hs-key : %x\n", serverHSKey)
-	fmt.Printf("   s-hs-iv  : %x\n", serverHSIV)
+	conn.keydbgf("   s-hs-key : %x\n", serverHSKey)
+	conn.keydbgf("   s-hs-iv  : %x\n", serverHSIV)
 
 	// Instantiate handshake keys.
 
@@ -131,13 +132,13 @@ func (conn *Connection) deriveKeys(server bool, transcript []byte) error {
 	emptyHash := sha256.Sum256([]byte{})
 
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
-	fmt.Printf(" - Traffic  :\n")
+	conn.keydbgf(" - Traffic  :\n")
 
 	derivedSecret := deriveSecret(conn.handshakeSecret, "derived", emptyHash[:])
-	fmt.Printf("   derived  : %x\n", derivedSecret)
+	conn.keydbgf("   derived  : %x\n", derivedSecret)
 
 	masterSecret := hkdf.Extract(sha256.New, zeroHash, derivedSecret)
-	fmt.Printf("   master   : %x\n", masterSecret)
+	conn.keydbgf("   master   : %x\n", masterSecret)
 
 	// Derive application traffic secrets.
 	clientAppTr := deriveSecret(masterSecret, "c ap traffic", transcript)
@@ -148,14 +149,14 @@ func (conn *Connection) deriveKeys(server bool, transcript []byte) error {
 	clientAppKey := hkdfExpandLabel(clientAppTr, "key", nil, 16)
 	clientAppIV := hkdfExpandLabel(clientAppTr, "iv", nil, 12)
 
-	fmt.Printf("   c-app-key: %x\n", clientAppKey)
-	fmt.Printf("   c-app-iv : %x\n", clientAppIV)
+	conn.keydbgf("   c-app-key: %x\n", clientAppKey)
+	conn.keydbgf("   c-app-iv : %x\n", clientAppIV)
 
 	serverAppKey := hkdfExpandLabel(serverAppTr, "key", nil, 16)
 	serverAppIV := hkdfExpandLabel(serverAppTr, "iv", nil, 12)
 
-	fmt.Printf("   s-app-key: %x\n", serverAppKey)
-	fmt.Printf("   s-app-iv : %x\n", serverAppIV)
+	conn.keydbgf("   s-app-key: %x\n", serverAppKey)
+	conn.keydbgf("   s-app-iv : %x\n", serverAppIV)
 
 	// Instantiate application keys.
 
@@ -300,7 +301,7 @@ func (cipher *Cipher) Decrypt(data []byte) (ContentType, []byte, error) {
 		}
 	}
 	if end == 0 {
-		return CTInvalid, nil, errUnexpectedMessage
+		return CTInvalid, nil, AlertUnexpectedMessage
 	}
 
 	return ContentType(plain[end]), plain[:end], nil

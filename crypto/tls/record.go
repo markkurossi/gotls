@@ -6,10 +6,6 @@
 
 package tls
 
-import (
-	"fmt"
-)
-
 // ReadRecord reads a record layer record.
 func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
 	// Read record header.
@@ -24,7 +20,7 @@ func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
 	legacyVersion := ProtocolVersion(bo.Uint16(conn.rbuf[1:3]))
 	length := int(bo.Uint16(conn.rbuf[3:5]))
 
-	fmt.Printf("<< %s %s[%d]\n", legacyVersion, ct, length)
+	conn.Debugf("<< %s %s[%d]\n", legacyVersion, ct, length)
 
 	for i := 0; i < length; {
 		n, err := conn.conn.Read(conn.rbuf[i:length])
@@ -63,7 +59,7 @@ func (conn *Connection) WriteRecord(ct ContentType, data []byte) error {
 	bo.PutUint16(hdr[1:3], uint16(VersionTLS12))
 	bo.PutUint16(hdr[3:5], uint16(len(data)))
 
-	fmt.Printf(">> WriteRecord: %v[%d]\n", ct, len(data))
+	conn.Debugf(">> WriteRecord: %v[%d]\n", ct, len(data))
 
 	_, err := conn.conn.Write(hdr[:])
 	if err != nil {

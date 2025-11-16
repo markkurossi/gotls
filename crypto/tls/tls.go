@@ -22,6 +22,7 @@ import (
 	"hash"
 	"io"
 	"net"
+	"time"
 )
 
 var (
@@ -42,6 +43,7 @@ var (
 	}
 
 	_ io.ReadWriteCloser = &Conn{}
+	_ net.Conn           = &Conn{}
 )
 
 // Config defines TLS client and server configuration options.
@@ -581,6 +583,31 @@ func (conn *Conn) Write(p []byte) (int, error) {
 func (conn *Conn) Close() error {
 	conn.alert(AlertCloseNotify)
 	return conn.conn.Close()
+}
+
+// LocalAddr implements net.Conn.LocalAddr.
+func (conn *Conn) LocalAddr() net.Addr {
+	return conn.conn.LocalAddr()
+}
+
+// RemoteAddr implements net.Conn.RemoteAddr.
+func (conn *Conn) RemoteAddr() net.Addr {
+	return conn.conn.RemoteAddr()
+}
+
+// SetDeadline implements net.Conn.SetDeadline.
+func (conn *Conn) SetDeadline(t time.Time) error {
+	return conn.conn.SetDeadline(t)
+}
+
+// SetReadDeadline implements net.Conn.SetReadDeadline.
+func (conn *Conn) SetReadDeadline(t time.Time) error {
+	return conn.conn.SetReadDeadline(t)
+}
+
+// SetWriteDeadline implements net.Conn.SetWriteDeadline.
+func (conn *Conn) SetWriteDeadline(t time.Time) error {
+	return conn.conn.SetWriteDeadline(t)
 }
 
 func (conn *Conn) recvClientHandshake(data []byte) error {

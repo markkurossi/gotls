@@ -198,6 +198,16 @@ type Finished struct {
 	VerifyData       [32]byte
 }
 
+// NewSessionTicket implements the new_session_ticket message.
+type NewSessionTicket struct {
+	HandshakeTypeLen uint32
+	TicketLifetime   uint32
+	TicketAgeAdd     uint32
+	TicketNonce      []byte      `tls:"u8"`
+	Ticket           []byte      `tls:"u16"`
+	Extensions       []Extension `tls:"u16"`
+}
+
 // CipherSuite defines cipher suites.
 type CipherSuite uint16
 

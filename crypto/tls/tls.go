@@ -132,7 +132,8 @@ func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
 		case CTHandshake:
 			return ct, data, nil
 		default:
-			return CTInvalid, nil, conn.alert(AlertUnexpectedMessage)
+			return CTInvalid, nil,
+				conn.alertf(AlertUnexpectedMessage, "received %v", ct)
 		}
 	}
 }
@@ -178,11 +179,19 @@ func (conn *Connection) ClientHandshake() error {
 		LegacyCompressionMethods: []byte{0},
 		Extensions: []Extension{
 			NewExtension(ETSupportedGroups, GroupSecp256r1),
-			NewExtension(ETSignatureAlgorithms, SigSchemeEcdsaSecp256r1Sha256,
-				// XXX this is needed for www.google.com, check also SNI
+			NewExtension(ETSignatureAlgorithms,
+				SigSchemeEcdsaSecp256r1Sha256,
+				SigSchemeEcdsaSecp384r1Sha384,
+				SigSchemeEcdsaSecp521r1Sha512,
+				SigSchemeRsaPkcs1Sha256,
+				SigSchemeRsaPkcs1Sha384,
+				SigSchemeRsaPkcs1Sha512,
+				SigSchemeRsaPssPssSha256,
+				SigSchemeRsaPssPssSha384,
+				SigSchemeRsaPssPssSha512,
 				SigSchemeRsaPssRsaeSha256,
-				// XXX is needed for some Amazon hosted services.
-				SigSchemeRsaPkcs1Sha256),
+				SigSchemeRsaPssRsaeSha384,
+				SigSchemeRsaPssRsaeSha512),
 			NewExtension(ETSupportedVersions, VersionTLS13),
 			NewExtension(ETKeyShare, keyShare),
 		},
@@ -528,8 +537,14 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 		case CTApplicationData:
 			conn.appData = data
 
+		case CTHandshake:
+			err = conn.recvServerHandshake(data, nil, nil)
+			if err != nil {
+				return 0, err
+			}
+
 		default:
-			return 0, conn.alert(AlertUnexpectedMessage)
+			return 0, conn.alertf(AlertUnexpectedMessage, "received %v", ct)
 		}
 	}
 
@@ -838,6 +853,12 @@ func (conn *Connection) recvServerHandshake(data []byte,
 		case HTFinished:
 			return conn.recvFinished(false, data)
 		}
+
+	case HSDone:
+		switch ht {
+		case HTNewSessionTicket:
+			return conn.recvNewSessionTicket(data)
+		}
 	}
 	return conn.illegalParameterf("%s: invalid handshake message: %v",
 		conn.handshakeState, ht)
@@ -1081,6 +1102,29 @@ func (conn *Connection) recvCertificateVerify(data []byte) error {
 	// XXX conn.serverCert.Verify()
 
 	conn.transcript.Write(data)
+
+	return nil
+}
+
+func (conn *Connection) recvNewSessionTicket(data []byte) error {
+	conn.Debugf(" < new_session_ticket\n")
+
+	ticket := new(NewSessionTicket)
+	err := Unmarshal(data, ticket)
+	if err != nil {
+		return conn.decodeErrorf("failed to decode new_session_ticket: %v", err)
+	}
+	conn.Debugf(" - ticket_lifetime: %d\n", ticket.TicketLifetime)
+	conn.Debugf(" - ticket_age_add : %d\n", ticket.TicketAgeAdd)
+	conn.Debugf(" - ticket_nonce   : %x\n", ticket.TicketNonce)
+	conn.Debugf(" - ticket         : %x\n", ticket.Ticket)
+
+	err = conn.processServerExtensions(ticket.Extensions)
+	if err != nil {
+		return err
+	}
+
+	// XXX handle NewSessionTicket
 
 	return nil
 }

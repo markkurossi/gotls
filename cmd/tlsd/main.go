@@ -73,7 +73,7 @@ func main() {
 		conn := tls.NewConnection(c, &tls.Config{
 			Debug: *fDebug,
 		})
-		go func(c *tls.Connection) {
+		go func(c *tls.Conn) {
 			err := c.ServerHandshake(priv, cert)
 			if err != nil {
 				log.Printf("TLS handshake failed: %v", err)

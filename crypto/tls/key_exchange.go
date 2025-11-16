@@ -18,7 +18,7 @@ import (
 	"github.com/markkurossi/gotls/crypto/hkdf"
 )
 
-func (conn *Connection) keydbgf(format string, a ...interface{}) {
+func (conn *Conn) keydbgf(format string, a ...interface{}) {
 	if true && conn.config.Debug {
 		fmt.Printf(format, a...)
 	}
@@ -66,7 +66,7 @@ func deriveSecret(secret []byte, label string, hash []byte) []byte {
 	return hkdfExpandLabel(secret, label, hash, sha256.Size)
 }
 
-func (conn *Connection) deriveHandshakeKeys(server bool) error {
+func (conn *Conn) deriveHandshakeKeys(server bool) error {
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
 	conn.keydbgf(" - Handshake:\n")
 
@@ -127,7 +127,7 @@ func (conn *Connection) deriveHandshakeKeys(server bool) error {
 	return nil
 }
 
-func (conn *Connection) deriveKeys(server bool, transcript []byte) error {
+func (conn *Conn) deriveKeys(server bool, transcript []byte) error {
 	zeroHash := make([]byte, sha256.Size)
 	emptyHash := sha256.Sum256([]byte{})
 
@@ -185,7 +185,7 @@ var (
 	clientSignatureCtx = []byte("TLS 1.3, client CertificateVerify")
 )
 
-func (conn *Connection) certificateVerify(hash crypto.Hash) []byte {
+func (conn *Conn) certificateVerify(hash crypto.Hash) []byte {
 	data := make([]byte, 0, 64+len(serverSignatureCtx)+1+conn.transcript.Size())
 
 	for i := 0; i < 64; i++ {
@@ -203,7 +203,7 @@ func (conn *Connection) certificateVerify(hash crypto.Hash) []byte {
 
 // Finished computes the finished verification code for client/server
 // depending on the server argument.
-func (conn *Connection) finished(server bool) []byte {
+func (conn *Conn) finished(server bool) []byte {
 	var baseKey []byte
 	if server {
 		baseKey = conn.serverHSTr

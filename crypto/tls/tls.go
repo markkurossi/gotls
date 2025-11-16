@@ -41,7 +41,7 @@ var (
 		SigSchemeEcdsaSecp256r1Sha256: true,
 	}
 
-	_ io.ReadWriteCloser = &Connection{}
+	_ io.ReadWriteCloser = &Conn{}
 )
 
 // Config defines TLS client and server configuration options.
@@ -51,8 +51,8 @@ type Config struct {
 	Certificate *x509.Certificate
 }
 
-// Connection implements a TLS connection.
-type Connection struct {
+// Conn implements a TLS connection.
+type Conn struct {
 	conn   net.Conn
 	config *Config
 	rbuf   []byte
@@ -108,8 +108,8 @@ var handshakeStates = map[HandshakeState]string{
 }
 
 // NewConnection creates a new TLS connection for the argument conn.
-func NewConnection(conn net.Conn, config *Config) *Connection {
-	return &Connection{
+func NewConnection(conn net.Conn, config *Config) *Conn {
+	return &Conn{
 		conn:   conn,
 		config: config,
 		rbuf:   make([]byte, 65536),
@@ -117,13 +117,13 @@ func NewConnection(conn net.Conn, config *Config) *Connection {
 }
 
 // Debugf prints debug output for the connection.
-func (conn *Connection) Debugf(format string, a ...interface{}) {
+func (conn *Conn) Debugf(format string, a ...interface{}) {
 	if conn.config.Debug {
 		fmt.Printf(format, a...)
 	}
 }
 
-func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
+func (conn *Conn) readHandshakeMsg() (ContentType, []byte, error) {
 	for {
 		ct, data, err := conn.ReadRecord()
 		if err != nil {
@@ -149,7 +149,7 @@ func (conn *Connection) readHandshakeMsg() (ContentType, []byte, error) {
 	}
 }
 
-func (conn *Connection) writeHandshakeMsg(ht HandshakeType, data []byte) error {
+func (conn *Conn) writeHandshakeMsg(ht HandshakeType, data []byte) error {
 	// Set TypeLen
 	typeLen := uint32(ht)<<24 | uint32(len(data)-4)
 	bo.PutUint32(data[0:4], typeLen)
@@ -160,7 +160,7 @@ func (conn *Connection) writeHandshakeMsg(ht HandshakeType, data []byte) error {
 }
 
 // ClientHandshake runs the client handshake protocol.
-func (conn *Connection) ClientHandshake() error {
+func (conn *Conn) ClientHandshake() error {
 	ecdhCurve := ecdh.P256()
 	ecdhPriv, err := ecdhCurve.GenerateKey(rand.Reader)
 	if err != nil {
@@ -270,7 +270,7 @@ func (conn *Connection) ClientHandshake() error {
 }
 
 // ServerHandshake runs the server handshake protocol.
-func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
+func (conn *Conn) ServerHandshake(key *ecdsa.PrivateKey,
 	cert *x509.Certificate) error {
 
 	//  Client                                               Server
@@ -528,7 +528,7 @@ func (conn *Connection) ServerHandshake(key *ecdsa.PrivateKey,
 	return nil
 }
 
-func (conn *Connection) Read(p []byte) (n int, err error) {
+func (conn *Conn) Read(p []byte) (n int, err error) {
 	if conn.readCipher == nil {
 		return 0, errors.New("handshake not completed")
 	}
@@ -565,7 +565,7 @@ func (conn *Connection) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
-func (conn *Connection) Write(p []byte) (int, error) {
+func (conn *Conn) Write(p []byte) (int, error) {
 	if conn.writeCipher == nil {
 		return 0, errors.New("handshake not completed")
 	}
@@ -578,12 +578,12 @@ func (conn *Connection) Write(p []byte) (int, error) {
 }
 
 // Close implements io.Closer.Close.
-func (conn *Connection) Close() error {
+func (conn *Conn) Close() error {
 	conn.alert(AlertCloseNotify)
 	return conn.conn.Close()
 }
 
-func (conn *Connection) recvClientHandshake(data []byte) error {
+func (conn *Conn) recvClientHandshake(data []byte) error {
 	if len(data) < 4 {
 		return conn.decodeErrorf("truncated handshake")
 	}
@@ -618,7 +618,7 @@ func (conn *Connection) recvClientHandshake(data []byte) error {
 		conn.handshakeState, ht)
 }
 
-func (conn *Connection) recvClientHello(data []byte) error {
+func (conn *Conn) recvClientHello(data []byte) error {
 	conn.clientHello = new(ClientHello)
 	err := Unmarshal(data, conn.clientHello)
 	if err != nil {
@@ -802,7 +802,7 @@ func (conn *Connection) recvClientHello(data []byte) error {
 	return nil
 }
 
-func (conn *Connection) recvFinished(server bool, data []byte) error {
+func (conn *Conn) recvFinished(server bool, data []byte) error {
 	var finished Finished
 
 	err := Unmarshal(data, &finished)
@@ -832,8 +832,8 @@ func (conn *Connection) recvFinished(server bool, data []byte) error {
 	return nil
 }
 
-func (conn *Connection) recvServerHandshake(data []byte,
-	ecdhCurve ecdh.Curve, ecdhPriv *ecdh.PrivateKey) error {
+func (conn *Conn) recvServerHandshake(data []byte, ecdhCurve ecdh.Curve,
+	ecdhPriv *ecdh.PrivateKey) error {
 
 	if len(data) < 4 {
 		return conn.decodeErrorf("truncated handshake")
@@ -875,8 +875,8 @@ func (conn *Connection) recvServerHandshake(data []byte,
 		conn.handshakeState, ht)
 }
 
-func (conn *Connection) recvServerHello(data []byte,
-	ecdhCurve ecdh.Curve, ecdhPriv *ecdh.PrivateKey) error {
+func (conn *Conn) recvServerHello(data []byte, ecdhCurve ecdh.Curve,
+	ecdhPriv *ecdh.PrivateKey) error {
 
 	conn.Debugf(" < server_hello:\n")
 
@@ -959,7 +959,7 @@ func (conn *Connection) recvServerHello(data []byte,
 	return nil
 }
 
-func (conn *Connection) recvEncryptedExtensions(data []byte) error {
+func (conn *Conn) recvEncryptedExtensions(data []byte) error {
 	conn.Debugf(" < encrypted_extensions\n")
 
 	encryptedExtensions := new(EncryptedExtensions)
@@ -979,7 +979,7 @@ func (conn *Connection) recvEncryptedExtensions(data []byte) error {
 	return nil
 }
 
-func (conn *Connection) recvCertificate(data []byte) error {
+func (conn *Conn) recvCertificate(data []byte) error {
 	conn.Debugf(" < certificate\n")
 
 	certificate := new(Certificate)
@@ -1003,7 +1003,7 @@ func (conn *Connection) recvCertificate(data []byte) error {
 	return nil
 }
 
-func (conn *Connection) recvCertificateVerify(data []byte) error {
+func (conn *Conn) recvCertificateVerify(data []byte) error {
 	conn.Debugf(" < certificate_verify\n")
 
 	verify := new(CertificateVerify)
@@ -1117,7 +1117,7 @@ func (conn *Connection) recvCertificateVerify(data []byte) error {
 	return nil
 }
 
-func (conn *Connection) recvNewSessionTicket(data []byte) error {
+func (conn *Conn) recvNewSessionTicket(data []byte) error {
 	conn.Debugf(" < new_session_ticket\n")
 
 	ticket := new(NewSessionTicket)
@@ -1140,7 +1140,7 @@ func (conn *Connection) recvNewSessionTicket(data []byte) error {
 	return nil
 }
 
-func (conn *Connection) processServerExtensions(extensions []Extension) error {
+func (conn *Conn) processServerExtensions(extensions []Extension) error {
 	conn.Debugf(" - extensions: {")
 	col := 0
 	for _, ext := range extensions {
@@ -1185,14 +1185,14 @@ func (conn *Connection) processServerExtensions(extensions []Extension) error {
 	return nil
 }
 
-func (conn *Connection) recvChangeCipherSpec(data []byte) error {
+func (conn *Conn) recvChangeCipherSpec(data []byte) error {
 	if len(data) != 1 || data[0] != 1 {
 		return conn.decodeErrorf("invalid change_cipher_spec")
 	}
 	return nil
 }
 
-func (conn *Connection) recvAlert(data []byte) error {
+func (conn *Conn) recvAlert(data []byte) error {
 	if len(data) != 2 {
 		return conn.decodeErrorf("invalid alert")
 	}

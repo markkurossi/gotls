@@ -7,7 +7,7 @@
 package tls
 
 // ReadRecord reads a record layer record.
-func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
+func (conn *Conn) ReadRecord() (ContentType, []byte, error) {
 	// Read record header.
 	for i := 0; i < 5; {
 		n, err := conn.conn.Read(conn.rbuf[i:5])
@@ -47,7 +47,7 @@ func (conn *Connection) ReadRecord() (ContentType, []byte, error) {
 }
 
 // WriteRecord writes a record layer record.
-func (conn *Connection) WriteRecord(ct ContentType, data []byte) error {
+func (conn *Conn) WriteRecord(ct ContentType, data []byte) error {
 	if conn.writeCipher != nil {
 		data = conn.writeCipher.Encrypt(ct, data)
 		ct = CTApplicationData

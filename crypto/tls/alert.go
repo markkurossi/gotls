@@ -10,7 +10,7 @@ import (
 	"fmt"
 )
 
-func (conn *Connection) alert(desc AlertDescription) error {
+func (conn *Conn) alert(desc AlertDescription) error {
 	var buf [2]byte
 
 	buf[0] = byte(desc.Level())
@@ -34,7 +34,7 @@ func (conn *Connection) alert(desc AlertDescription) error {
 	return desc
 }
 
-func (conn *Connection) alertf(desc AlertDescription, format string,
+func (conn *Conn) alertf(desc AlertDescription, format string,
 	a ...interface{}) error {
 
 	err := conn.alert(desc)
@@ -47,18 +47,18 @@ func (conn *Connection) alertf(desc AlertDescription, format string,
 	return fmt.Errorf("%s: %w", msg, err)
 }
 
-func (conn *Connection) decodeErrorf(msg string, a ...interface{}) error {
+func (conn *Conn) decodeErrorf(msg string, a ...interface{}) error {
 	return conn.alertf(AlertDecodeError, msg, a...)
 }
 
-func (conn *Connection) illegalParameterf(msg string, a ...interface{}) error {
+func (conn *Conn) illegalParameterf(msg string, a ...interface{}) error {
 	return conn.alertf(AlertIllegalParameter, msg, a...)
 }
 
-func (conn *Connection) missingExceptionf(msg string, a ...interface{}) error {
+func (conn *Conn) missingExceptionf(msg string, a ...interface{}) error {
 	return conn.alertf(AlertMissingExtension, msg, a...)
 }
 
-func (conn *Connection) internalErrorf(msg string, a ...interface{}) error {
+func (conn *Conn) internalErrorf(msg string, a ...interface{}) error {
 	return conn.alertf(AlertInternalError, msg, a...)
 }

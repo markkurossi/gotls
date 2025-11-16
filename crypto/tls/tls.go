@@ -51,6 +51,7 @@ type Config struct {
 	Debug       bool
 	PrivateKey  *ecdsa.PrivateKey
 	Certificate *x509.Certificate
+	ServerName  string
 }
 
 // Conn implements a TLS connection.
@@ -208,6 +209,12 @@ func (conn *Conn) ClientHandshake() error {
 			NewExtension(ETSupportedVersions, VersionTLS13),
 			NewExtension(ETKeyShare, keyShare),
 		},
+	}
+	if len(conn.config.ServerName) > 0 {
+		conn.clientHello.Extensions = append(conn.clientHello.Extensions,
+			NewExtension(ETServerName, &ServerName{
+				Hostname: []byte(conn.config.ServerName),
+			}))
 	}
 
 	_, err = rand.Read(conn.clientHello.Random[:])

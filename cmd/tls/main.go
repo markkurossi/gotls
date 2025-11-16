@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/markkurossi/gotls/crypto/tls"
 )
@@ -23,13 +24,21 @@ func main() {
 		log.Fatalf("not target specified")
 	}
 
-	c, err := net.Dial("tcp", flag.Args()[0])
+	target := flag.Args()[0]
+
+	c, err := net.Dial("tcp", target)
 	if err != nil {
 		log.Fatal(err)
 	}
-	conn := tls.NewConnection(c, &tls.Config{
+	config := &tls.Config{
 		Debug: *fDebug,
-	})
+	}
+	idx := strings.IndexByte(target, ':')
+	if idx > 0 {
+		config.ServerName = target[:idx]
+	}
+
+	conn := tls.NewConnection(c, config)
 
 	err = conn.ClientHandshake()
 	if err != nil {

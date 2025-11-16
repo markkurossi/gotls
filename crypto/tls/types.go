@@ -376,7 +376,7 @@ func NewExtension(t ExtensionType, values ...interface{}) Extension {
 
 	var ll int
 	switch t {
-	case ETSupportedGroups, ETSignatureAlgorithms, ETKeyShare:
+	case ETSupportedGroups, ETSignatureAlgorithms, ETKeyShare, ETServerName:
 		ll = 2
 	case ETSupportedVersions:
 		ll = 1
@@ -405,6 +405,13 @@ func NewExtension(t ExtensionType, values ...interface{}) Extension {
 			data, err := Marshal(v)
 			if err != nil {
 				panic(fmt.Sprintf("failed to marshal KeyShareEntry: %v", err))
+			}
+			result.Write(data)
+
+		case *ServerName:
+			data, err := Marshal(v)
+			if err != nil {
+				panic(fmt.Sprintf("failed to marshal ServerName: %v", err))
 			}
 			result.Write(data)
 
@@ -464,6 +471,10 @@ func (ext Extension) Uint16List(lsize int) ([]uint16, error) {
 func (ext Extension) String() string {
 	switch ext.Type {
 	case ETServerName:
+		if len(ext.Data) == 0 {
+			// SNI acknowledgment.
+			return fmt.Sprintf("%v: \u2713", ext.Type)
+		}
 		if len(ext.Data) < 2 {
 			return fmt.Sprintf("%v: \u26A0 %x", ext.Type, ext.Data)
 		}

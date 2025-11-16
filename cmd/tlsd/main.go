@@ -15,6 +15,7 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net"
@@ -83,7 +84,9 @@ func main() {
 			for {
 				n, err := c.Read(buf)
 				if err != nil {
-					log.Printf("read: %v\n", err)
+					if err != io.EOF {
+						log.Printf("read error: %v\n", err)
+					}
 					return
 				}
 				fmt.Printf("read: %s\n", buf[:n])
@@ -93,7 +96,7 @@ func main() {
 					_, err = c.Write(buf[:n])
 				}
 				if err != nil {
-					log.Printf("write: %v\n", err)
+					log.Printf("write error: %v\n", err)
 					return
 				}
 			}

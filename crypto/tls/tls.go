@@ -81,6 +81,7 @@ type Conn struct {
 
 	writeCipher *Cipher
 	readCipher  *Cipher
+	readEOF     bool
 	appData     []byte
 }
 
@@ -523,6 +524,9 @@ func (conn *Conn) ServerHandshake(key *ecdsa.PrivateKey,
 	// complete the handshake.
 	for conn.handshakeState != HSDone {
 		_, data, err := conn.readHandshakeMsg()
+		if err != nil {
+			return fmt.Errorf("%w: %v", AlertHandshakeFailure, err)
+		}
 		err = conn.recvClientHandshake(data)
 		if err != nil {
 			return err
@@ -543,6 +547,9 @@ func (conn *Conn) Read(p []byte) (n int, err error) {
 	}
 
 	for len(conn.appData) == 0 {
+		if conn.readEOF {
+			return 0, io.EOF
+		}
 		ct, data, err := conn.ReadRecord()
 		if err != nil {
 			return 0, err
@@ -1223,6 +1230,8 @@ func (conn *Conn) recvChangeCipherSpec(data []byte) error {
 	if len(data) != 1 || data[0] != 1 {
 		return conn.decodeErrorf("invalid change_cipher_spec")
 	}
+	conn.Debugf(" < change_cipher_spec\n")
+
 	return nil
 }
 
@@ -1231,7 +1240,13 @@ func (conn *Conn) recvAlert(data []byte) error {
 		return conn.decodeErrorf("invalid alert")
 	}
 	desc := AlertDescription(data[1])
-	fmt.Printf("alert: %v: %v\n", desc.Level(), desc)
-	// XXX should terminate the connection etc.
+	conn.Debugf(" < alert: %v: %v\n", desc.Level(), desc)
+
+	if desc == AlertCloseNotify {
+		conn.readEOF = true
+	} else if desc.Level() == AlertLevelFatal {
+		conn.conn.Close()
+	}
+
 	return nil
 }

@@ -7,7 +7,6 @@
 package tls
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -19,41 +18,41 @@ func (conn *Connection) alert(desc AlertDescription) error {
 
 	fmt.Printf(" > Alert: level=%v, desc=%v\n", desc.Level(), desc)
 
-	return conn.WriteRecord(CTAlert, buf[:])
+	err := conn.WriteRecord(CTAlert, buf[:])
+	if err != nil {
+		return fmt.Errorf("write %w failed: %w", desc, err)
+	}
+	if desc.Level() == AlertLevelWarning {
+		return nil
+	}
+	return desc
+}
+
+func (conn *Connection) alertf(desc AlertDescription, format string,
+	a ...interface{}) error {
+
+	err := conn.alert(desc)
+	if err == nil {
+		err = desc
+	}
+
+	msg := fmt.Errorf(format, a...)
+
+	return fmt.Errorf("%s: %w", msg, err)
 }
 
 func (conn *Connection) decodeErrorf(msg string, a ...interface{}) error {
-	orig := fmt.Errorf(msg, a...)
-	err := conn.alert(AlertDecodeError)
-	if err != nil {
-		return errors.Join(err, orig)
-	}
-	return orig
+	return conn.alertf(AlertDecodeError, msg, a...)
 }
 
 func (conn *Connection) illegalParameterf(msg string, a ...interface{}) error {
-	orig := fmt.Errorf(msg, a...)
-	err := conn.alert(AlertIllegalParameter)
-	if err != nil {
-		return errors.Join(err, orig)
-	}
-	return orig
+	return conn.alertf(AlertIllegalParameter, msg, a...)
 }
 
 func (conn *Connection) missingExceptionf(msg string, a ...interface{}) error {
-	orig := fmt.Errorf(msg, a...)
-	err := conn.alert(AlertMissingExtension)
-	if err != nil {
-		return errors.Join(err, orig)
-	}
-	return orig
+	return conn.alertf(AlertMissingExtension, msg, a...)
 }
 
 func (conn *Connection) internalErrorf(msg string, a ...interface{}) error {
-	orig := fmt.Errorf(msg, a...)
-	err := conn.alert(AlertInternalError)
-	if err != nil {
-		return errors.Join(err, orig)
-	}
-	return orig
+	return conn.alertf(AlertInternalError, msg, a...)
 }

@@ -662,9 +662,13 @@ const (
 // AlertDescription describes the alert.
 type AlertDescription uint8
 
+func (desc AlertDescription) Error() string {
+	return desc.String()
+}
+
 // Level returns the alert description's severity.
 func (desc AlertDescription) Level() AlertLevel {
-	if desc == 0 || desc == 90 {
+	if desc == AlertCloseNotify || desc == AlertUserCanceled {
 		return AlertLevelWarning
 	}
 	return AlertLevelFatal

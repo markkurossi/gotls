@@ -51,7 +51,7 @@ func TestMarshalHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Compare(data, encoded) != 0 {
+	if !bytes.Equal(data, encoded) {
 		limit := len(data)
 		if len(encoded) < limit {
 			limit = len(encoded)

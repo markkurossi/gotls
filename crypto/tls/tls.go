@@ -4,12 +4,12 @@
 // All rights reserved.
 //
 
+// Package tls implements the TLS 1.3 protocol.
 package tls
 
 import (
 	"bytes"
 	"crypto"
-	"crypto/dsa"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -858,7 +858,7 @@ func (conn *Conn) recvFinished(server bool, data []byte) error {
 	verifyData := conn.finished(!server)
 	conn.Debugf(" - computed   : %x\n", verifyData)
 
-	if bytes.Compare(finished.VerifyData[:], verifyData) != 0 {
+	if !bytes.Equal(finished.VerifyData[:], verifyData) {
 		return conn.alert(AlertDecryptError)
 	}
 
@@ -928,7 +928,7 @@ func (conn *Conn) recvServerHello(data []byte, ecdhCurve ecdh.Curve,
 		return conn.decodeErrorf("failed to decode server_hello: %v", err)
 	}
 
-	if bytes.Compare(serverHello.Random[:], HelloRetryRequestRandom[:]) == 0 {
+	if bytes.Equal(serverHello.Random[:], HelloRetryRequestRandom[:]) {
 		// No further algorithms to select.
 		conn.Debugf(" - random: HelloRetryRequestRandom\n")
 		return conn.alert(AlertHandshakeFailure)
@@ -959,8 +959,8 @@ func (conn *Conn) recvServerHello(data []byte, ecdhCurve ecdh.Curve,
 	// is used.
 	conn.Debugf(" - random: %x\n", serverHello.Random)
 
-	if bytes.Compare(serverHello.LegacySessionID,
-		conn.clientHello.LegacySessionID) != 0 {
+	if !bytes.Equal(serverHello.LegacySessionID,
+		conn.clientHello.LegacySessionID) {
 		return conn.illegalParameterf("legacy_session_id_echo mismatch")
 	}
 	conn.Debugf(" - cipher_suite: %v\n", serverHello.CipherSuite)
@@ -1122,11 +1122,6 @@ func (conn *Conn) recvCertificateVerify(data []byte) error {
 		default:
 			return conn.alert(AlertUnsupportedCertificate)
 		}
-
-	case *dsa.PublicKey:
-		conn.Debugf(" - DSA public key\n")
-		pubkeyAlg = x509.DSA
-		return conn.alert(AlertUnsupportedCertificate)
 
 	case *ecdsa.PublicKey:
 		pubkeyAlg = x509.ECDSA

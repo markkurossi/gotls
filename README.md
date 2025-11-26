@@ -15,3 +15,7 @@ OpenSSL:
 ``` shell
 openssl s_client -connect localhost:8443 -debug -msg -tlsextdebug -servername ephemelier.com -CAfile server-cert.pem
 ```
+
+``` shell
+openssl s_server -accept 8443 -cert server-cert.pem -key server-key.pem
+```

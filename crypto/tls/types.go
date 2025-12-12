@@ -247,6 +247,38 @@ func (cs CipherSuite) Hash() hash.Hash {
 	}
 }
 
+func (cs CipherSuite) KeySize() int {
+	switch cs {
+	case CipherTLSAes128GcmSha256:
+		return 16
+
+	case CipherTLSChacha20Poly1305Sha256:
+		return 32
+
+	case CipherTLSAes256GcmSha384:
+		return 32
+
+	default:
+		panic(fmt.Sprintf("CipherSuite.KeySize: unsupported: %v", cs))
+	}
+}
+
+func (cs CipherSuite) IVSize() int {
+	switch cs {
+	case CipherTLSAes128GcmSha256:
+		return 12
+
+	case CipherTLSChacha20Poly1305Sha256:
+		return 12
+
+	case CipherTLSAes256GcmSha384:
+		return 12
+
+	default:
+		panic(fmt.Sprintf("CipherSuite.KeySize: unsupported: %v", cs))
+	}
+}
+
 // NamedGroup defines named key exchange groups.
 type NamedGroup uint16
 

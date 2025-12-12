@@ -17,6 +17,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
@@ -32,7 +33,8 @@ var (
 		VersionTLS13: true,
 	}
 	supportedCipherSuites = map[CipherSuite]bool{
-		CipherTLSAes128GcmSha256: true,
+		CipherTLSAes128GcmSha256:        false,
+		CipherTLSChacha20Poly1305Sha256: true,
 	}
 	supportedGroups = map[NamedGroup]bool{
 		GroupSecp256r1: true,
@@ -153,12 +155,17 @@ func (conn *Conn) readHandshakeMsg() (ContentType, []byte, error) {
 	}
 }
 
+func (conn *Conn) WriteTranscript(data []byte) {
+	// conn.Debugf("WriteTranscript:\n%s", hex.Dump(data))
+	conn.transcript.Write(data)
+}
+
 func (conn *Conn) writeHandshakeMsg(ht HandshakeType, data []byte) error {
 	// Set TypeLen
 	typeLen := uint32(ht)<<24 | uint32(len(data)-4)
 	bo.PutUint32(data[0:4], typeLen)
 
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 
 	return conn.WriteRecord(CTHandshake, data)
 }
@@ -321,7 +328,7 @@ func (conn *Conn) ServerHandshake(key *ecdsa.PrivateKey,
 
 	// Init transcript.
 	conn.transcript = conn.cipherSuites[0].Hash()
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 
 	if conn.peerKeyShare == nil {
 		// No matching group, send HelloRetryRequest.
@@ -336,8 +343,8 @@ func (conn *Conn) ServerHandshake(key *ecdsa.PrivateKey,
 		digest := conn.transcript.Sum(nil)
 
 		conn.transcript.Reset()
-		conn.transcript.Write(hdr[:])
-		conn.transcript.Write(digest)
+		conn.WriteTranscript(hdr[:])
+		conn.WriteTranscript(digest)
 
 		// Create HelloRetryRequest message.
 		req := &ServerHello{
@@ -376,7 +383,7 @@ func (conn *Conn) ServerHandshake(key *ecdsa.PrivateKey,
 		if err != nil {
 			return err
 		}
-		conn.transcript.Write(data)
+		conn.WriteTranscript(data)
 
 		if conn.peerKeyShare == nil {
 			return conn.alert(AlertHandshakeFailure)
@@ -644,11 +651,11 @@ func (conn *Conn) recvClientHandshake(data []byte) error {
 	case HSServerDone:
 		switch ht {
 		case HTCertificate:
-			conn.transcript.Write(data)
+			conn.WriteTranscript(data)
 			return conn.internalErrorf("client %v not implemented yet", ht)
 
 		case HTCertificateVerify:
-			conn.transcript.Write(data)
+			conn.WriteTranscript(data)
 			return conn.internalErrorf("client %v not implemented yet", ht)
 
 		case HTFinished:
@@ -846,6 +853,8 @@ func (conn *Conn) recvClientHello(data []byte) error {
 func (conn *Conn) recvFinished(server bool, data []byte) error {
 	var finished Finished
 
+	fmt.Printf("recvFinished:\n%s", hex.Dump(data))
+
 	err := Unmarshal(data, &finished)
 	if err != nil {
 		return err
@@ -868,7 +877,7 @@ func (conn *Conn) recvFinished(server bool, data []byte) error {
 		conn.handshakeState = HSServerDone
 	}
 
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 
 	return nil
 }
@@ -884,8 +893,8 @@ func (conn *Conn) recvServerHandshake(data []byte, ecdhCurve ecdh.Curve,
 	length := typeLen & 0xffffff
 	if int(length+4) != len(data) {
 		return conn.decodeErrorf(
-			"handshake length mismatch: got %v, expected %v",
-			length+4, len(data))
+			"handshake length mismatch: got %v, expected %v\n%s",
+			length+4, len(data), hex.Dump(data))
 	}
 	switch conn.handshakeState {
 	case HSServerHello:
@@ -991,7 +1000,7 @@ func (conn *Conn) recvServerHello(data []byte, ecdhCurve ecdh.Curve,
 		return conn.decodeErrorf("ECDH failed: %v", err)
 	}
 
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 	err = conn.deriveHandshakeKeys(false)
 	if err != nil {
 		return err
@@ -1015,7 +1024,7 @@ func (conn *Conn) recvEncryptedExtensions(data []byte) error {
 	}
 	// XXX check which encrypted extensions are allowed
 
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 
 	return nil
 }
@@ -1039,7 +1048,7 @@ func (conn *Conn) recvCertificate(data []byte) error {
 
 	conn.Debugf(" - PublicKeyAlgorithm: %v\n", conn.peerCert.PublicKeyAlgorithm)
 
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 
 	return nil
 }
@@ -1148,7 +1157,7 @@ func (conn *Conn) recvCertificateVerify(data []byte) error {
 
 	// XXX conn.serverCert.Verify()
 
-	conn.transcript.Write(data)
+	conn.WriteTranscript(data)
 
 	return nil
 }

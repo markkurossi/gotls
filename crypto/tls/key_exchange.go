@@ -12,10 +12,12 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 
 	"github.com/markkurossi/gotls/crypto/hkdf"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 func (conn *Conn) keydbgf(format string, a ...interface{}) {
@@ -67,8 +69,15 @@ func deriveSecret(secret []byte, label string, hash []byte) []byte {
 }
 
 func (conn *Conn) deriveHandshakeKeys(server bool) error {
+	// XXX should take the has function from the selected cipher suite.
+	cs := conn.cipherSuites[0]
+
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
 	conn.keydbgf(" - Handshake:\n")
+	conn.keydbgf("   shared   : %x\n", conn.sharedSecret)
+
+	transcript := conn.transcript.Sum(nil)
+	conn.keydbgf("   transcrpt: %x\n", transcript)
 
 	zeroHash := make([]byte, sha256.Size)
 	earlySecret := hkdf.Extract(sha256.New, zeroHash, zeroHash)
@@ -83,7 +92,6 @@ func (conn *Conn) deriveHandshakeKeys(server bool) error {
 	conn.keydbgf("   handshake: %x\n", conn.handshakeSecret)
 
 	// Derive handshake traffic secrets.
-	transcript := conn.transcript.Sum(nil)
 	conn.clientHSTr = deriveSecret(conn.handshakeSecret, "c hs traffic",
 		transcript)
 	conn.serverHSTr = deriveSecret(conn.handshakeSecret, "s hs traffic",
@@ -93,25 +101,25 @@ func (conn *Conn) deriveHandshakeKeys(server bool) error {
 
 	// Derive keys and IVs from traffic secrets.
 
-	clientHSKey := hkdfExpandLabel(conn.clientHSTr, "key", nil, 16)
-	clientHSIV := hkdfExpandLabel(conn.clientHSTr, "iv", nil, 12)
+	clientHSKey := hkdfExpandLabel(conn.clientHSTr, "key", nil, cs.KeySize())
+	clientHSIV := hkdfExpandLabel(conn.clientHSTr, "iv", nil, cs.IVSize())
 
 	conn.keydbgf("   c-hs-key : %x\n", clientHSKey)
 	conn.keydbgf("   c-hs-iv  : %x\n", clientHSIV)
 
-	serverHSKey := hkdfExpandLabel(conn.serverHSTr, "key", nil, 16)
-	serverHSIV := hkdfExpandLabel(conn.serverHSTr, "iv", nil, 12)
+	serverHSKey := hkdfExpandLabel(conn.serverHSTr, "key", nil, cs.KeySize())
+	serverHSIV := hkdfExpandLabel(conn.serverHSTr, "iv", nil, cs.IVSize())
 
 	conn.keydbgf("   s-hs-key : %x\n", serverHSKey)
 	conn.keydbgf("   s-hs-iv  : %x\n", serverHSIV)
 
 	// Instantiate handshake keys.
 
-	serverCipher, err := NewCipher(serverHSKey, serverHSIV)
+	serverCipher, err := NewCipher(conn, serverHSKey, serverHSIV)
 	if err != nil {
 		return err
 	}
-	clientCipher, err := NewCipher(clientHSKey, clientHSIV)
+	clientCipher, err := NewCipher(conn, clientHSKey, clientHSIV)
 	if err != nil {
 		return err
 	}
@@ -128,11 +136,16 @@ func (conn *Conn) deriveHandshakeKeys(server bool) error {
 }
 
 func (conn *Conn) deriveKeys(server bool, transcript []byte) error {
+	// XXX should take the has function from the selected cipher suite.
+	cs := conn.cipherSuites[0]
+
 	zeroHash := make([]byte, sha256.Size)
 	emptyHash := sha256.Sum256([]byte{})
 
 	// TLS 1.3 Key Schedule: RFC-8446: 7.1. Key Schedule, page 91-
 	conn.keydbgf(" - Traffic  :\n")
+	conn.keydbgf("   handshake: %x\n", conn.handshakeSecret)
+	conn.keydbgf("   transcrpt: %x\n", transcript)
 
 	derivedSecret := deriveSecret(conn.handshakeSecret, "derived", emptyHash[:])
 	conn.keydbgf("   derived  : %x\n", derivedSecret)
@@ -146,25 +159,25 @@ func (conn *Conn) deriveKeys(server bool, transcript []byte) error {
 
 	// Derive keys and IVs from traffic secrets.
 
-	clientAppKey := hkdfExpandLabel(clientAppTr, "key", nil, 16)
-	clientAppIV := hkdfExpandLabel(clientAppTr, "iv", nil, 12)
+	clientAppKey := hkdfExpandLabel(clientAppTr, "key", nil, cs.KeySize())
+	clientAppIV := hkdfExpandLabel(clientAppTr, "iv", nil, cs.IVSize())
 
 	conn.keydbgf("   c-app-key: %x\n", clientAppKey)
 	conn.keydbgf("   c-app-iv : %x\n", clientAppIV)
 
-	serverAppKey := hkdfExpandLabel(serverAppTr, "key", nil, 16)
-	serverAppIV := hkdfExpandLabel(serverAppTr, "iv", nil, 12)
+	serverAppKey := hkdfExpandLabel(serverAppTr, "key", nil, cs.KeySize())
+	serverAppIV := hkdfExpandLabel(serverAppTr, "iv", nil, cs.IVSize())
 
 	conn.keydbgf("   s-app-key: %x\n", serverAppKey)
 	conn.keydbgf("   s-app-iv : %x\n", serverAppIV)
 
 	// Instantiate application keys.
 
-	serverCipher, err := NewCipher(serverAppKey, serverAppIV)
+	serverCipher, err := NewCipher(conn, serverAppKey, serverAppIV)
 	if err != nil {
 		return err
 	}
-	clientCipher, err := NewCipher(clientAppKey, clientAppIV)
+	clientCipher, err := NewCipher(conn, clientAppKey, clientAppIV)
 	if err != nil {
 		return err
 	}
@@ -212,7 +225,9 @@ func (conn *Conn) finished(server bool) []byte {
 	}
 	finishedKey := hkdfExpandLabel(baseKey, "finished", nil, sha256.Size)
 	hash := hmac.New(sha256.New, finishedKey)
-	hash.Write(conn.transcript.Sum(nil))
+	digest := conn.transcript.Sum(nil)
+	conn.keydbgf("FinishedDigest:\n%s", hex.Dump(digest))
+	hash.Write(digest)
 	return hash.Sum(nil)
 }
 
@@ -225,17 +240,32 @@ type Cipher struct {
 }
 
 // NewCipher creates a new Cipher for the key and iv.
-func NewCipher(key, iv []byte) (*Cipher, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
+func NewCipher(conn *Conn, key, iv []byte) (*Cipher, error) {
+	conn.keydbgf("NewCipher: cs=%v, key=%x\n", conn.cipherSuites[0], key)
+
+	var aead cipher.AEAD
+	var err error
+
+	switch conn.cipherSuites[0] {
+	case CipherTLSAes128GcmSha256, CipherTLSAes256GcmSha384:
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, err
+		}
+		aead, err = cipher.NewGCM(block)
+		if err != nil {
+			return nil, err
+		}
+
+	case CipherTLSChacha20Poly1305Sha256:
+		aead, err = chacha20poly1305.New(key)
+		if err != nil {
+			return nil, err
+		}
 	}
-	cipher, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
+
 	return &Cipher{
-		cipher: cipher,
+		cipher: aead,
 		iv:     iv,
 		ivSeq:  make([]byte, len(iv)),
 	}, nil

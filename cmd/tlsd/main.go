@@ -31,9 +31,7 @@ var (
 )
 
 var (
-	indexHTML = []byte(`HTTP/1.1 200 OK
-
-<html>
+	indexHTML = []byte(`<html>
 <body>
 <h1>Hello, world!</h1>
 </body>
@@ -91,7 +89,9 @@ func main() {
 				}
 				fmt.Printf("read: %s\n", buf[:n])
 				if *httpd {
-					_, err = c.Write(indexHTML)
+					resp := fmt.Sprintf("HTTP/1.1 200 OK\nContent-Length: %d\n\n%s",
+						len(indexHTML), indexHTML)
+					_, err = c.Write([]byte(resp))
 				} else {
 					_, err = c.Write(buf[:n])
 				}

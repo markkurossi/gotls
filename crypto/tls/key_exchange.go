@@ -241,7 +241,9 @@ type Cipher struct {
 
 // NewCipher creates a new Cipher for the key and iv.
 func NewCipher(conn *Conn, key, iv []byte) (*Cipher, error) {
-	conn.keydbgf("NewCipher: cs=%v, key=%x\n", conn.cipherSuites[0], key)
+	conn.keydbgf(" - NewCipher:\n")
+	conn.keydbgf("   cs       : %v\n", conn.cipherSuites[0])
+	conn.keydbgf("   key      : %x\n", key)
 
 	var aead cipher.AEAD
 	var err error
@@ -320,7 +322,17 @@ func (cipher *Cipher) Decrypt(data []byte) (ContentType, []byte, error) {
 
 	plain, err := cipher.cipher.Open(nil, iv, data, hdr[:])
 	if err != nil {
+		fmt.Printf("Open failed: %v\n", err)
+		fmt.Printf(" - iv  : %x\n", iv)
+		fmt.Printf(" - data: %x\n", data)
+		fmt.Printf(" - hdr : %x\n", hdr)
 		return CTInvalid, nil, err
+	}
+	if false {
+		fmt.Printf("Open success:\n")
+		fmt.Printf(" - iv  : %x\n", iv)
+		fmt.Printf(" - data: %x\n", data)
+		fmt.Printf(" - hdr : %x\n", hdr)
 	}
 
 	// Remove padding and resolve the original content type.

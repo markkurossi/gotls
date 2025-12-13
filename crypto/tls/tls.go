@@ -32,6 +32,10 @@ var (
 	supportedVersions = map[ProtocolVersion]bool{
 		VersionTLS13: true,
 	}
+	preferredCipherSuites = []CipherSuite{
+		CipherTLSAes128GcmSha256,
+		CipherTLSChacha20Poly1305Sha256,
+	}
 	supportedCipherSuites = map[CipherSuite]bool{
 		CipherTLSAes128GcmSha256:        false,
 		CipherTLSChacha20Poly1305Sha256: true,
@@ -193,11 +197,8 @@ func (conn *Conn) ClientHandshake() error {
 	}
 
 	conn.clientHello = &ClientHello{
-		LegacyVersion:   VersionTLS12,
-		LegacySessionID: legacySessionID[:],
-		CipherSuites: []CipherSuite{
-			CipherTLSAes128GcmSha256,
-		},
+		LegacyVersion:            VersionTLS12,
+		LegacySessionID:          legacySessionID[:],
 		LegacyCompressionMethods: []byte{0},
 		Extensions: []Extension{
 			NewExtension(ETSupportedGroups, GroupSecp256r1),
@@ -218,6 +219,13 @@ func (conn *Conn) ClientHandshake() error {
 			NewExtension(ETKeyShare, keyShare),
 		},
 	}
+	for _, cs := range preferredCipherSuites {
+		if supportedCipherSuites[cs] {
+			conn.clientHello.CipherSuites = append(
+				conn.clientHello.CipherSuites, cs)
+		}
+	}
+
 	if len(conn.config.ServerName) > 0 {
 		conn.clientHello.Extensions = append(conn.clientHello.Extensions,
 			NewExtension(ETServerName, &ServerName{
@@ -972,7 +980,10 @@ func (conn *Conn) recvServerHello(data []byte, ecdhCurve ecdh.Curve,
 		conn.clientHello.LegacySessionID) {
 		return conn.illegalParameterf("legacy_session_id_echo mismatch")
 	}
+
 	conn.Debugf(" - cipher_suite: %v\n", serverHello.CipherSuite)
+	conn.cipherSuites = []CipherSuite{serverHello.CipherSuite}
+
 	if serverHello.LegacyCompressionMethod != 0 {
 		return conn.illegalParameterf("invalid legacy_compression_method: %v",
 			serverHello.LegacyCompressionMethod)

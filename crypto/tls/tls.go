@@ -37,7 +37,7 @@ var (
 		CipherTLSChacha20Poly1305Sha256,
 	}
 	supportedCipherSuites = map[CipherSuite]bool{
-		CipherTLSAes128GcmSha256:        false,
+		CipherTLSAes128GcmSha256:        true,
 		CipherTLSChacha20Poly1305Sha256: true,
 	}
 	supportedGroups = map[NamedGroup]bool{

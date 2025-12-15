@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/markkurossi/gotls/crypto/tls"
 )
@@ -40,10 +41,14 @@ func main() {
 
 	conn := tls.NewConnection(c, config)
 
+	tsStart := time.Now()
+
 	err = conn.ClientHandshake()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	tsHandshake := time.Now()
 
 	_, err = conn.Write([]byte("Hello, world!\n"))
 	if err != nil {
@@ -61,4 +66,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	tsEnd := time.Now()
+
+	fmt.Printf("handshake: %v\n", tsHandshake.Sub(tsStart))
+	fmt.Printf("roundtrip: %v\n", tsEnd.Sub(tsHandshake))
+	fmt.Printf("req/resp : %v\n", tsEnd.Sub(tsStart))
 }

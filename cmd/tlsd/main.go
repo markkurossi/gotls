@@ -26,8 +26,8 @@ import (
 )
 
 var (
-	keyPath  = "server-key.pem"
-	certPath = "server-cert.pem"
+	defaultPrivPath = "server-priv.pem"
+	defaultCertPath = "server-cert.pem"
 )
 
 var (
@@ -42,18 +42,20 @@ var (
 func main() {
 	fDebug := flag.Bool("d", false, "debug output")
 	httpd := flag.Bool("httpd", false, "Simple HTTPD")
+	privPath := flag.String("priv", defaultPrivPath, "private key PEM")
+	certPath := flag.String("cert", defaultCertPath, "certificate PEM")
 	flag.Parse()
 
-	priv, cert, err := loadKeyAndCert(keyPath, certPath)
+	priv, cert, err := loadKeyAndCert(*privPath, *certPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Fatalf("failed to load key and cert: %v", err)
 		}
-		err = createKeyAndCert(keyPath, certPath)
+		err = createKeyAndCert(*privPath, *certPath)
 		if err != nil {
 			log.Fatalf("failed to create key and cert: %v", err)
 		}
-		priv, cert, err = loadKeyAndCert(keyPath, certPath)
+		priv, cert, err = loadKeyAndCert(*privPath, *certPath)
 		if err != nil {
 			log.Fatalf("failed to load key and cert: %v", err)
 		}
@@ -179,8 +181,11 @@ func createKeyAndCert(keyPath, certPath string) error {
 	return nil
 }
 
-func loadKeyAndCert(keyPath, certPath string) (
+func loadKeyAndCert(privPath, certPath string) (
 	*ecdsa.PrivateKey, *x509.Certificate, error) {
+
+	fmt.Printf("Private Key: %v\n", privPath)
+	fmt.Printf("Certificate: %v\n", certPath)
 
 	// Load certificate file.
 	certPEM, err := os.ReadFile(certPath)
@@ -197,7 +202,7 @@ func loadKeyAndCert(keyPath, certPath string) (
 	}
 
 	// Load private key file.
-	keyPEM, err := os.ReadFile(keyPath)
+	keyPEM, err := os.ReadFile(privPath)
 	if err != nil {
 		return nil, nil, err
 	}

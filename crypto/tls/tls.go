@@ -861,8 +861,6 @@ func (conn *Conn) recvClientHello(data []byte) error {
 func (conn *Conn) recvFinished(server bool, data []byte) error {
 	var finished Finished
 
-	fmt.Printf("recvFinished:\n%s", hex.Dump(data))
-
 	err := Unmarshal(data, &finished)
 	if err != nil {
 		return err

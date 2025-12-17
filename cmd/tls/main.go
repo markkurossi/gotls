@@ -70,6 +70,6 @@ func main() {
 	tsEnd := time.Now()
 
 	fmt.Printf("handshake: %v\n", tsHandshake.Sub(tsStart))
-	fmt.Printf("roundtrip: %v\n", tsEnd.Sub(tsHandshake))
-	fmt.Printf("req/resp : %v\n", tsEnd.Sub(tsStart))
+	fmt.Printf("req/resp : %v\n", tsEnd.Sub(tsHandshake))
+	fmt.Printf("roundtrip: %v\n", tsEnd.Sub(tsStart))
 }

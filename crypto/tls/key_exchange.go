@@ -115,11 +115,11 @@ func (conn *Conn) deriveHandshakeKeys(server bool) error {
 
 	// Instantiate handshake keys.
 
-	serverCipher, err := NewCipher(conn, serverHSKey, serverHSIV)
+	serverCipher, err := NewCipher(conn, serverHSKey, serverHSIV, "server")
 	if err != nil {
 		return err
 	}
-	clientCipher, err := NewCipher(conn, clientHSKey, clientHSIV)
+	clientCipher, err := NewCipher(conn, clientHSKey, clientHSIV, "client")
 	if err != nil {
 		return err
 	}
@@ -173,11 +173,11 @@ func (conn *Conn) deriveKeys(server bool, transcript []byte) error {
 
 	// Instantiate application keys.
 
-	serverCipher, err := NewCipher(conn, serverAppKey, serverAppIV)
+	serverCipher, err := NewCipher(conn, serverAppKey, serverAppIV, "server")
 	if err != nil {
 		return err
 	}
-	clientCipher, err := NewCipher(conn, clientAppKey, clientAppIV)
+	clientCipher, err := NewCipher(conn, clientAppKey, clientAppIV, "client")
 	if err != nil {
 		return err
 	}
@@ -240,8 +240,8 @@ type Cipher struct {
 }
 
 // NewCipher creates a new Cipher for the key and iv.
-func NewCipher(conn *Conn, key, iv []byte) (*Cipher, error) {
-	conn.keydbgf(" - NewCipher:\n")
+func NewCipher(conn *Conn, key, iv []byte, role string) (*Cipher, error) {
+	conn.keydbgf(" - NewCipher: %s\n", role)
 	conn.keydbgf("   cs       : %v\n", conn.cipherSuites[0])
 	conn.keydbgf("   key      : %x\n", key)
 
